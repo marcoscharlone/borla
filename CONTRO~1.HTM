@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Control de Precios - Supermercado</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  :root {
+    --azul: #1F4E78;
+    --azul-claro: #2E6BA8;
+    --amarillo: #FFF3B0;
+    --rojo: #C0392B;
+    --verde: #1E8449;
+    --gris: #F4F6F8;
+    --borde: #D7DEE5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: var(--gris);
+    margin: 0;
+    color: #222;
+  }
+  header {
+    background: var(--azul);
+    color: #fff;
+    padding: 16px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  header h1 { font-size: 20px; margin: 0; }
+  #status { font-size: 13px; opacity: 0.9; }
+  main { max-width: 1300px; margin: 20px auto; padding: 0 16px 60px; }
+  .card {
+    background: #fff;
+    border: 1px solid var(--borde);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 18px;
+  }
+  .card h2 { font-size: 15px; margin: 0 0 12px; color: var(--azul); }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  label { font-size: 12px; font-weight: bold; color: #444; display: block; margin-bottom: 4px; }
+  input, select {
+    padding: 7px 9px;
+    border: 1px solid var(--borde);
+    border-radius: 5px;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  button {
+    background: var(--azul-claro);
+    color: #fff;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 5px;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  button:hover { background: var(--azul); }
+  button.secondary { background: #6c7a89; }
+  button.secondary:hover { background: #55606c; }
+  button.danger { background: var(--rojo); }
+  button:disabled { background: #aab4bd; cursor: not-allowed; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid var(--borde); padding: 6px 8px; text-align: left; }
+  th { background: var(--azul); color: #fff; position: sticky; top: 0; }
+  tbody tr:nth-child(even) { background: #FAFBFC; }
+  tr.low-stock { background: #FDEDEC !important; }
+  td input { width: 90px; }
+  .badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: bold; }
+  .badge-ok { background: #D5F5E3; color: var(--verde); }
+  .badge-bajo { background: #FADBD8; color: var(--rojo); }
+  .table-wrap { max-height: 560px; overflow: auto; border: 1px solid var(--borde); border-radius: 6px; }
+  #msg { font-size: 13px; margin-top: 8px; min-height: 18px; }
+  #msg.error { color: var(--rojo); }
+  #msg.ok { color: var(--verde); }
+  .hidden { display: none !important; }
+  .footer-stats { display: flex; gap: 24px; font-size: 13px; color: #444; margin-top: 8px; }
+  .footer-stats b { color: var(--azul); }
+  small.help { color: #777; display: block; margin-top: 4px; }
+  .save-btn { background: var(--verde); }
+  .save-btn:hover { background: #166638; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Control de Precios — Supermercado</h1>
+  <div id="status">No conectado</div>
+</header>
+
+<main>
+
+  <div class="card" id="configCard">
+    <h2>Conexión con Google Sheets</h2>
+    <div class="row">
+      <div>
+        <label>Google OAuth Client ID</label>
+        <input id="clientId" type="text" placeholder="xxxxxxxx.apps.googleusercontent.com" size="42">
+      </div>
+      <div>
+        <label>ID de la hoja de cálculo</label>
+        <input id="sheetId" type="text" placeholder="ID desde la URL de Google Sheets" size="42">
+      </div>
+      <div>
+        <button id="connectBtn">Conectar con Google</button>
+      </div>
+      <div>
+        <button id="disconnectBtn" class="secondary hidden">Desconectar</button>
+      </div>
+    </div>
+    <small class="help">El Client ID y el ID de la hoja se guardan solo en este navegador. Ver la guía de configuración adjunta para crearlos.</small>
+    <div id="msg"></div>
+  </div>
+
+  <div id="appSection" class="hidden">
+
+    <div class="card">
+      <h2>Filtros</h2>
+      <div class="row">
+        <div>
+          <label>Buscar (nombre, SKU o EAN)</label>
+          <input id="searchInput" type="text" placeholder="Ej: arroz, ALM-0001, 7791234567890">
+        </div>
+        <div>
+          <label>Categoría</label>
+          <select id="filterCategoria"><option value="">Todas</option></select>
+        </div>
+        <div>
+          <label>Proveedor</label>
+          <select id="filterProveedor"><option value="">Todos</option></select>
+        </div>
+        <div>
+          <label><input type="checkbox" id="filterBajo"> Solo stock bajo</label>
+        </div>
+        <div>
+          <button id="reloadBtn" class="secondary">Recargar datos</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Actualización de precios por categoría</h2>
+      <div class="row">
+        <div>
+          <label>Categoría</label>
+          <select id="bulkCategoria"><option value="">Seleccionar...</option></select>
+        </div>
+        <div>
+          <label>Aplicar a</label>
+          <select id="bulkTarget">
+            <option value="venta">Precio de venta</option>
+            <option value="costo">Precio de costo</option>
+            <option value="ambos">Costo y venta</option>
+          </select>
+        </div>
+        <div>
+          <label>Variación %</label>
+          <input id="bulkPct" type="number" step="0.1" placeholder="Ej: 10 o -5" style="width:100px">
+        </div>
+        <div>
+          <label>Motivo</label>
+          <input id="bulkMotivo" type="text" placeholder="Ej: ajuste por inflación" size="24">
+        </div>
+        <div>
+          <button id="bulkApplyBtn">Aplicar a categoría</button>
+        </div>
+      </div>
+      <small class="help">Redondea al peso más cercano. Registra cada cambio en el historial de precios.</small>
+    </div>
+
+    <div class="card">
+      <h2>Catálogo de productos</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>SKU</th><th>EAN</th><th>Nombre</th><th>Categoría</th><th>Proveedor</th><th>Unidad</th>
+              <th>Costo</th><th>Venta</th><th>Margen %</th><th>Stock</th><th>Mín.</th>
+              <th>Estado</th><th>Actualizado</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="productsBody">
+          </tbody>
+        </table>
+      </div>
+      <div class="footer-stats">
+        <div>Productos: <b id="statTotal">0</b></div>
+        <div>Stock bajo: <b id="statBajo">0</b></div>
+        <div>Margen promedio: <b id="statMargen">0%</b></div>
+      </div>
+    </div>
+
+  </div>
+
+</main>
+
+<script>
+const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
+let tokenClient = null;
+let accessToken = null;
+let products = []; // {row, sku, nombre, categoria, proveedor, unidad, costo, venta, stock, stockMin, estado, actualizado}
+let categorias = [];
+let proveedores = [];
+
+const $ = (id) => document.getElementById(id);
+
+function setMsg(text, type) {
+  const el = $('msg');
+  el.textContent = text || '';
+  el.className = type || '';
+}
+
+function setStatus(text) {
+  $('status').textContent = text;
+}
+
+// ---------- Persist config in this browser ----------
+function loadSavedConfig() {
+  const cid = localStorage.getItem('cp_client_id');
+  const sid = localStorage.getItem('cp_sheet_id');
+  if (cid) $('clientId').value = cid;
+  if (sid) $('sheetId').value = sid;
+}
+function saveConfig() {
+  localStorage.setItem('cp_client_id', $('clientId').value.trim());
+  localStorage.setItem('cp_sheet_id', $('sheetId').value.trim());
+}
+
+// ---------- Auth ----------
+function connect() {
+  const clientId = $('clientId').value.trim();
+  const sheetId = $('sheetId').value.trim();
+  if (!clientId || !sheetId) {
+    setMsg('Completá el Client ID y el ID de la hoja antes de conectar.', 'error');
+    return;
+  }
+  saveConfig();
+  if (typeof google === 'undefined' || !google.accounts) {
+    setMsg('No se pudo cargar la librería de Google. Revisá tu conexión a internet.', 'error');
+    return;
+  }
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: clientId,
+    scope: SCOPES,
+    callback: async (resp) => {
+      if (resp.error) {
+        setMsg('Error de autenticación: ' + resp.error, 'error');
+        return;
+      }
+      accessToken = resp.access_token;
+      onConnected();
+    }
+  });
+  tokenClient.requestAccessToken({ prompt: '' });
+}
+
+function disconnect() {
+  if (accessToken) {
+    google.accounts.oauth2.revoke(accessToken, () => {});
+  }
+  accessToken = null;
+  $('appSection').classList.add('hidden');
+  $('disconnectBtn').classList.add('hidden');
+  setStatus('No conectado');
+  setMsg('', '');
+}
+
+async function onConnected() {
+  setStatus('Conectado a Google Sheets');
+  $('appSection').classList.remove('hidden');
+  $('disconnectBtn').classList.remove('hidden');
+  setMsg('Cargando datos...', '');
+  try {
+    await loadAll();
+    setMsg('Datos cargados correctamente.', 'ok');
+  } catch (e) {
+    setMsg('No se pudieron cargar los datos: ' + e.message, 'error');
+    console.error('Error cargando datos:', e);
+  }
+}
+
+// ---------- Sheets API helpers ----------
+function sheetId() { return $('sheetId').value.trim(); }
+
+async function sheetsGet(range) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}/values/${encodeURIComponent(range)}?valueRenderOption=UNFORMATTED_VALUE`;
+  const res = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken } });
+  if (!res.ok) throw new Error(await describeError(res));
+  const data = await res.json();
+  return data.values || [];
+}
+
+// Google Sheets/Excel date serial (day 0 = 1899-12-30) -> "YYYY-MM-DD"
+function serialToDateStr(v) {
+  if (v === undefined || v === null || v === '') return '';
+  if (typeof v === 'number') {
+    const ms = (v - 25569) * 86400 * 1000;
+    const d = new Date(ms);
+    if (isNaN(d.getTime())) return String(v);
+    return d.toISOString().slice(0, 10);
+  }
+  return String(v); // already a text date
+}
+
+async function sheetsUpdate(range, values) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ range, values })
+  });
+  if (!res.ok) throw new Error(await describeError(res));
+  return res.json();
+}
+
+async function sheetsBatchUpdate(data) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}/values:batchUpdate`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data })
+  });
+  if (!res.ok) throw new Error(await describeError(res));
+  return res.json();
+}
+
+async function sheetsAppend(range, values) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ range, values })
+  });
+  if (!res.ok) throw new Error(await describeError(res));
+  return res.json();
+}
+
+async function describeError(res) {
+  try {
+    const j = await res.json();
+    return j.error && j.error.message ? j.error.message : ('Error ' + res.status);
+  } catch (e) {
+    return 'Error ' + res.status;
+  }
+}
+
+// ---------- Data loading ----------
+async function loadAll() {
+  const [prodRows, catRows, provRows] = await Promise.all([
+    sheetsGet('Productos!A2:M1000'),
+    sheetsGet('Categorias!A2:B50'),
+    sheetsGet('Proveedores!A2:A50')
+  ]);
+
+  categorias = catRows.filter(r => r[0]).map(r => r[0]);
+  proveedores = provRows.filter(r => r[0]).map(r => r[0]);
+
+  products = [];
+  prodRows.forEach((r, i) => {
+    if (!r[0]) return; // skip empty rows
+    products.push({
+      row: i + 2,
+      sku: r[0] || '',
+      nombre: r[1] || '',
+      categoria: r[2] || '',
+      proveedor: r[3] || '',
+      unidad: r[4] || '',
+      costo: parseFloat(r[5]) || 0,
+      venta: parseFloat(r[6]) || 0,
+      margen: r[7] || '',
+      stock: parseFloat(r[8]) || 0,
+      stockMin: parseFloat(r[9]) || 0,
+      estado: r[10] || '',
+      actualizado: serialToDateStr(r[11]),
+      ean: r[12] || ''
+    });
+  });
+
+  populateFilterOptions();
+  renderTable();
+}
+
+function populateFilterOptions() {
+  const fillSelect = (sel, items) => {
+    const current = sel.value;
+    sel.innerHTML = sel.id.startsWith('filter')
+      ? '<option value="">' + (sel.id === 'filterCategoria' ? 'Todas' : 'Todos') + '</option>'
+      : '<option value="">Seleccionar...</option>';
+    items.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = v; opt.textContent = v;
+      sel.appendChild(opt);
+    });
+    if (items.includes(current)) sel.value = current;
+  };
+  fillSelect($('filterCategoria'), categorias);
+  fillSelect($('filterProveedor'), proveedores);
+  fillSelect($('bulkCategoria'), categorias);
+}
+
+// ---------- Rendering ----------
+function renderTable() {
+  const search = $('searchInput').value.trim().toLowerCase();
+  const fCat = $('filterCategoria').value;
+  const fProv = $('filterProveedor').value;
+  const fBajo = $('filterBajo').checked;
+
+  const filtered = products.filter(p => {
+    if (search && !(p.nombre.toLowerCase().includes(search) || p.sku.toLowerCase().includes(search) || (p.ean || '').toLowerCase().includes(search))) return false;
+    if (fCat && p.categoria !== fCat) return false;
+    if (fProv && p.proveedor !== fProv) return false;
+    if (fBajo && p.estado !== 'Bajo') return false;
+    return true;
+  });
+
+  const tbody = $('productsBody');
+  tbody.innerHTML = '';
+  let sumMargen = 0, countMargen = 0, bajoCount = 0;
+
+  products.forEach(p => { if (p.estado === 'Bajo') bajoCount++; });
+
+  filtered.forEach(p => {
+    const tr = document.createElement('tr');
+    if (p.estado === 'Bajo') tr.classList.add('low-stock');
+
+    const margenPct = p.costo > 0 ? ((p.venta - p.costo) / p.costo * 100) : 0;
+    sumMargen += margenPct; countMargen++;
+
+    tr.innerHTML = `
+      <td>${escapeHtml(p.sku)}</td>
+      <td><input type="text" value="${escapeHtml(p.ean)}" data-field="ean" data-row="${p.row}" style="width:130px"></td>
+      <td>${escapeHtml(p.nombre)}</td>
+      <td>${escapeHtml(p.categoria)}</td>
+      <td>${escapeHtml(p.proveedor)}</td>
+      <td>${escapeHtml(p.unidad)}</td>
+      <td><input type="number" step="0.01" value="${p.costo}" data-field="costo" data-row="${p.row}"></td>
+      <td><input type="number" step="0.01" value="${p.venta}" data-field="venta" data-row="${p.row}"></td>
+      <td>${margenPct.toFixed(1)}%</td>
+      <td>${p.stock}</td>
+      <td>${p.stockMin}</td>
+      <td><span class="badge ${p.estado === 'Bajo' ? 'badge-bajo' : 'badge-ok'}">${p.estado || 'OK'}</span></td>
+      <td>${escapeHtml(p.actualizado)}</td>
+      <td><button class="save-btn" data-save-row="${p.row}">Guardar</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  $('statTotal').textContent = products.length;
+  $('statBajo').textContent = bajoCount;
+  $('statMargen').textContent = (countMargen ? (sumMargen / countMargen).toFixed(1) : 0) + '%';
+
+  tbody.querySelectorAll('button[data-save-row]').forEach(btn => {
+    btn.addEventListener('click', () => saveRow(parseInt(btn.dataset.saveRow, 10)));
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ---------- Single row save ----------
+async function saveRow(rowNum) {
+  const product = products.find(p => p.row === rowNum);
+  if (!product) return;
+  const tr = [...document.querySelectorAll(`input[data-row="${rowNum}"]`)];
+  const costoInput = tr.find(i => i.dataset.field === 'costo');
+  const ventaInput = tr.find(i => i.dataset.field === 'venta');
+  const eanInput = tr.find(i => i.dataset.field === 'ean');
+  const newCosto = parseFloat(costoInput.value) || 0;
+  const newVenta = parseFloat(ventaInput.value) || 0;
+  const newEan = eanInput.value.trim();
+
+  const priceChanged = newCosto !== product.costo || newVenta !== product.venta;
+  const eanChanged = newEan !== product.ean;
+
+  if (!priceChanged && !eanChanged) {
+    setMsg('No hubo cambios para ' + product.sku + '.', '');
+    return;
+  }
+
+  setMsg('Guardando ' + product.sku + '...', '');
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    if (priceChanged) {
+      await sheetsUpdate(`Productos!F${rowNum}:G${rowNum}`, [[newCosto, newVenta]]);
+      await sheetsUpdate(`Productos!L${rowNum}`, [[today]]);
+      await appendHistorial(product, newCosto, newVenta, 'Actualización manual');
+      product.costo = newCosto;
+      product.venta = newVenta;
+      product.actualizado = today;
+    }
+    if (eanChanged) {
+      await sheetsUpdate(`Productos!M${rowNum}`, [[newEan]]);
+      product.ean = newEan;
+    }
+    renderTable();
+    setMsg((priceChanged ? 'Precio' : 'Datos') + ' de ' + product.sku + ' actualizado.', 'ok');
+  } catch (e) {
+    setMsg('Error al guardar ' + product.sku + ': ' + e.message, 'error');
+  }
+}
+
+async function appendHistorial(product, newCosto, newVenta, motivo) {
+  const today = new Date().toISOString().slice(0, 10);
+  const variacion = product.venta > 0 ? ((newVenta - product.venta) / product.venta) : 0;
+  await sheetsAppend('Historial_Precios!A:I', [[
+    today, product.sku, product.nombre,
+    product.costo, newCosto,
+    product.venta, newVenta,
+    variacion, motivo
+  ]]);
+}
+
+// ---------- Bulk update by category ----------
+async function applyBulkUpdate() {
+  const cat = $('bulkCategoria').value;
+  const target = $('bulkTarget').value;
+  const pct = parseFloat($('bulkPct').value);
+  const motivo = $('bulkMotivo').value.trim() || ('Ajuste por categoría ' + cat);
+
+  if (!cat) { setMsg('Elegí una categoría.', 'error'); return; }
+  if (isNaN(pct) || pct === 0) { setMsg('Ingresá un porcentaje distinto de 0.', 'error'); return; }
+
+  const affected = products.filter(p => p.categoria === cat);
+  if (affected.length === 0) { setMsg('No hay productos en esa categoría.', 'error'); return; }
+
+  if (!confirm(`Se va a aplicar ${pct}% a ${affected.length} producto(s) de "${cat}" (${target}). ¿Confirmar?`)) return;
+
+  setMsg(`Actualizando ${affected.length} producto(s)...`, '');
+  const today = new Date().toISOString().slice(0, 10);
+  const updateData = [];
+  const historialRows = [];
+
+  affected.forEach(p => {
+    let newCosto = p.costo, newVenta = p.venta;
+    if (target === 'costo' || target === 'ambos') newCosto = Math.round(p.costo * (1 + pct / 100));
+    if (target === 'venta' || target === 'ambos') newVenta = Math.round(p.venta * (1 + pct / 100));
+
+    updateData.push({ range: `Productos!F${p.row}:G${p.row}`, values: [[newCosto, newVenta]] });
+    updateData.push({ range: `Productos!L${p.row}`, values: [[today]] });
+
+    const variacionVenta = p.venta > 0 ? ((newVenta - p.venta) / p.venta) : 0;
+    historialRows.push([today, p.sku, p.nombre, p.costo, newCosto, p.venta, newVenta, variacionVenta, motivo]);
+
+    p._pendingCosto = newCosto;
+    p._pendingVenta = newVenta;
+  });
+
+  try {
+    await sheetsBatchUpdate(updateData);
+    await sheetsAppend('Historial_Precios!A:I', historialRows);
+
+    affected.forEach(p => {
+      p.costo = p._pendingCosto;
+      p.venta = p._pendingVenta;
+      p.actualizado = today;
+      delete p._pendingCosto;
+      delete p._pendingVenta;
+    });
+    renderTable();
+    setMsg(`Se actualizaron ${affected.length} producto(s) de "${cat}".`, 'ok');
+    $('bulkPct').value = '';
+  } catch (e) {
+    setMsg('Error en la actualización masiva: ' + e.message, 'error');
+  }
+}
+
+// ---------- Events ----------
+$('connectBtn').addEventListener('click', connect);
+$('disconnectBtn').addEventListener('click', disconnect);
+$('reloadBtn').addEventListener('click', async () => {
+  setMsg('Recargando...', '');
+  try {
+    await loadAll();
+    setMsg('Datos recargados.', 'ok');
+  } catch (e) {
+    setMsg('No se pudieron recargar los datos: ' + e.message, 'error');
+    console.error('Error recargando datos:', e);
+  }
+});
+$('searchInput').addEventListener('input', renderTable);
+$('filterCategoria').addEventListener('change', renderTable);
+$('filterProveedor').addEventListener('change', renderTable);
+$('filterBajo').addEventListener('change', renderTable);
+$('bulkApplyBtn').addEventListener('click', applyBulkUpdate);
+
+loadSavedConfig();
+</script>
+
+</body>
+</html>
