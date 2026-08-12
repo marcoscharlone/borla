@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Control de Precios - Super Popular</title>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root {
     --rojo-marca: #E3010F;
@@ -185,6 +186,40 @@
         </div>
       </div>
       <small class="help">Redondea al peso más cercano. Registra cada cambio en el historial de precios.</small>
+    </div>
+
+    <div class="card">
+      <h2>Actualizar precio de venta desde archivo</h2>
+      <div class="row">
+        <div>
+          <label>Archivo (.xls, .xlsx o .csv)</label>
+          <input id="fileInput" type="file" accept=".xls,.xlsx,.csv">
+        </div>
+        <div>
+          <label>Motivo</label>
+          <input id="fileMotivo" type="text" placeholder="Ej: lista de precios del proveedor" size="24">
+        </div>
+        <div>
+          <label><input type="checkbox" id="fileSkipZero" checked> Ignorar precios en $0 del archivo</label>
+        </div>
+        <div>
+          <button id="filePreviewBtn">Previsualizar cambios</button>
+        </div>
+      </div>
+      <small class="help">El archivo debe tener el código (SKU) en la columna A y el precio de venta en la columna G, una fila por producto. Se ignoran automáticamente las filas que no tengan un código numérico en A (encabezados, categorías, etc.).</small>
+      <div id="fileSummary" style="margin-top:10px; font-size:13px;"></div>
+      <div class="table-wrap hidden" id="filePreviewWrap" style="max-height:360px; margin-top:10px;">
+        <table>
+          <thead>
+            <tr><th></th><th>SKU</th><th>Nombre</th><th>Precio actual</th><th>Precio nuevo</th><th>Variación</th></tr>
+          </thead>
+          <tbody id="filePreviewBody"></tbody>
+        </table>
+      </div>
+      <div class="row" id="fileConfirmRow" style="margin-top:10px; display:none;">
+        <button id="fileConfirmBtn" class="save-btn">Confirmar actualización</button>
+        <button id="fileCancelBtn" class="secondary">Cancelar</button>
+      </div>
     </div>
 
     <div class="card">
@@ -375,23 +410,25 @@ async function loadAll() {
   proveedores = provRows.filter(r => r[0]).map(r => r[0]);
 
   products = [];
+  const asStr = (v) => (v === undefined || v === null) ? '' : String(v).trim();
+
   prodRows.forEach((r, i) => {
-    if (!r[0]) return; // skip empty rows
+    if (!r[0] && r[0] !== 0) return; // skip empty rows
     products.push({
       row: i + 2,
-      sku: r[0] || '',
-      nombre: r[1] || '',
-      categoria: r[2] || '',
-      proveedor: r[3] || '',
-      unidad: r[4] || '',
+      sku: asStr(r[0]),
+      nombre: asStr(r[1]),
+      categoria: asStr(r[2]),
+      proveedor: asStr(r[3]),
+      unidad: asStr(r[4]),
       costo: parseFloat(r[5]) || 0,
       venta: parseFloat(r[6]) || 0,
       margen: r[7] || '',
       stock: parseFloat(r[8]) || 0,
       stockMin: parseFloat(r[9]) || 0,
-      estado: r[10] || '',
+      estado: asStr(r[10]),
       actualizado: serialToDateStr(r[11]),
-      ean: r[12] || ''
+      ean: asStr(r[12])
     });
   });
 
@@ -584,6 +621,159 @@ async function applyBulkUpdate() {
   }
 }
 
+// ---------- Actualización de precio de venta desde archivo ----------
+let filePendingChanges = []; // [{product, newPrice}]
+
+function isNumericSku(v) {
+  if (v === undefined || v === null) return false;
+  const s = String(v).trim();
+  if (s === '') return false;
+  return /^\d+(\.\d+)?$/.test(s);
+}
+
+function readFileAsRows(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('No se pudo leer el archivo.'));
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        const firstSheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, raw: true, defval: '' });
+        resolve(rows);
+      } catch (err) {
+        reject(new Error('No se pudo interpretar el archivo: ' + err.message));
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+async function previewFileUpdate() {
+  const fileInputEl = $('fileInput');
+  const file = fileInputEl.files[0];
+  if (!file) { setMsg('Elegí un archivo primero.', 'error'); return; }
+  if (!products.length) { setMsg('Conectá y cargá el catálogo antes de subir un archivo.', 'error'); return; }
+
+  setMsg('Leyendo archivo...', '');
+  $('filePreviewWrap').classList.add('hidden');
+  $('fileConfirmRow').style.display = 'none';
+  filePendingChanges = [];
+
+  let rows;
+  try {
+    rows = await readFileAsRows(file);
+  } catch (e) {
+    setMsg(e.message, 'error');
+    return;
+  }
+
+  const skipZero = $('fileSkipZero').checked;
+  const bySku = {};
+  let zeroSkipped = 0;
+  let filasValidas = 0;
+
+  rows.forEach(row => {
+    const skuRaw = row[0];
+    const priceRaw = row[6]; // columna G
+    if (!isNumericSku(skuRaw)) return;
+    filasValidas++;
+    const sku = String(skuRaw).trim();
+    const price = parseFloat(priceRaw);
+    if (isNaN(price) || (skipZero && price <= 0)) { zeroSkipped++; return; }
+    bySku[sku] = price; // si hay repetidos, gana el último
+  });
+
+  const matched = [];
+  let noEncontrados = 0;
+  Object.keys(bySku).forEach(sku => {
+    const product = products.find(p => p.sku.trim() === sku);
+    if (!product) { noEncontrados++; return; }
+    const newPrice = bySku[sku];
+    matched.push({ product, newPrice, changed: newPrice !== product.venta });
+  });
+
+  filePendingChanges = matched.filter(m => m.changed);
+
+  const tbody = $('filePreviewBody');
+  tbody.innerHTML = '';
+  matched.forEach(m => {
+    const tr = document.createElement('tr');
+    const variacion = m.product.venta > 0 ? (((m.newPrice - m.product.venta) / m.product.venta) * 100).toFixed(1) + '%' : '—';
+    tr.innerHTML = `
+      <td><input type="checkbox" class="file-row-check" data-sku="${escapeHtml(m.product.sku)}" ${m.changed ? 'checked' : ''}></td>
+      <td>${escapeHtml(m.product.sku)}</td>
+      <td>${escapeHtml(m.product.nombre)}</td>
+      <td>${m.product.venta}</td>
+      <td>${m.newPrice}</td>
+      <td>${m.changed ? variacion : 'sin cambio'}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  $('fileSummary').innerHTML =
+    `Filas con código válido en el archivo: <b>${filasValidas}</b> — ` +
+    `Coinciden con el catálogo: <b>${matched.length}</b> — ` +
+    `Con cambio real de precio: <b>${filePendingChanges.length}</b> — ` +
+    `No encontrados en el catálogo: <b>${noEncontrados}</b> — ` +
+    `Ignorados (precio $0 o inválido): <b>${zeroSkipped}</b>`;
+
+  if (matched.length > 0) {
+    $('filePreviewWrap').classList.remove('hidden');
+    $('fileConfirmRow').style.display = 'flex';
+  }
+  setMsg('Previsualización lista. Revisá los cambios antes de confirmar.', 'ok');
+}
+
+async function confirmFileUpdate() {
+  const checks = [...document.querySelectorAll('.file-row-check:checked')].map(c => c.dataset.sku);
+  const toApply = filePendingChanges.filter(m => checks.includes(m.product.sku));
+
+  if (toApply.length === 0) {
+    setMsg('No hay filas marcadas para actualizar.', 'error');
+    return;
+  }
+  if (!confirm(`Se va a actualizar el precio de venta de ${toApply.length} producto(s). ¿Confirmar?`)) return;
+
+  const motivo = $('fileMotivo').value.trim() || 'Actualización desde archivo';
+  const today = new Date().toISOString().slice(0, 10);
+  const updateData = [];
+  const historialRows = [];
+
+  toApply.forEach(({ product, newPrice }) => {
+    updateData.push({ range: `Productos!G${product.row}`, values: [[newPrice]] });
+    updateData.push({ range: `Productos!L${product.row}`, values: [[today]] });
+    const variacion = product.venta > 0 ? ((newPrice - product.venta) / product.venta) : 0;
+    historialRows.push([today, product.sku, product.nombre, product.costo, product.costo, product.venta, newPrice, variacion, motivo]);
+    product._pendingVenta = newPrice;
+  });
+
+  setMsg(`Actualizando ${toApply.length} producto(s)...`, '');
+  try {
+    await sheetsBatchUpdate(updateData);
+    await sheetsAppend('Historial_Precios!A:I', historialRows);
+    toApply.forEach(({ product }) => {
+      product.venta = product._pendingVenta;
+      product.actualizado = today;
+      delete product._pendingVenta;
+    });
+    renderTable();
+    setMsg(`Se actualizaron ${toApply.length} producto(s) desde el archivo.`, 'ok');
+    cancelFileUpdate();
+  } catch (e) {
+    setMsg('Error al actualizar desde archivo: ' + e.message, 'error');
+  }
+}
+
+function cancelFileUpdate() {
+  filePendingChanges = [];
+  $('fileInput').value = '';
+  $('filePreviewWrap').classList.add('hidden');
+  $('fileConfirmRow').style.display = 'none';
+  $('fileSummary').innerHTML = '';
+}
+
 // ---------- Events ----------
 $('connectBtn').addEventListener('click', connect);
 $('disconnectBtn').addEventListener('click', disconnect);
@@ -602,6 +792,9 @@ $('filterCategoria').addEventListener('change', renderTable);
 $('filterProveedor').addEventListener('change', renderTable);
 $('filterBajo').addEventListener('change', renderTable);
 $('bulkApplyBtn').addEventListener('click', applyBulkUpdate);
+$('filePreviewBtn').addEventListener('click', previewFileUpdate);
+$('fileConfirmBtn').addEventListener('click', confirmFileUpdate);
+$('fileCancelBtn').addEventListener('click', cancelFileUpdate);
 
 loadSavedConfig();
 </script>
