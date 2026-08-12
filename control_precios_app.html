@@ -223,12 +223,50 @@
     </div>
 
     <div class="card">
+      <h2>Actualizar precio de costo por proveedor (desde archivo)</h2>
+      <div class="row">
+        <div>
+          <label>Proveedor a actualizar</label>
+          <select id="costFileProveedor"><option value="">Seleccionar...</option></select>
+        </div>
+        <div>
+          <label>Archivo (.xls, .xlsx o .csv)</label>
+          <input id="costFileInput" type="file" accept=".xls,.xlsx,.csv">
+        </div>
+        <div>
+          <label>Motivo</label>
+          <input id="costFileMotivo" type="text" placeholder="Ej: lista de precios Borla Hnos" size="24">
+        </div>
+        <div>
+          <label><input type="checkbox" id="costFileSkipZero" checked> Ignorar precios en $0 del archivo</label>
+        </div>
+        <div>
+          <button id="costFilePreviewBtn">Previsualizar cambios</button>
+        </div>
+      </div>
+      <small class="help">El archivo debe tener el código de artículo en la columna D y el precio de costo en la columna I (con encabezado en la fila 1). Solo se actualizan los productos de tu catálogo que ya tengan asignado el proveedor elegido arriba y cuyo <b>Código Proveedor</b> (columna N de la hoja Productos) coincida con el código de la columna D del archivo.</small>
+      <div id="costFileSummary" style="margin-top:10px; font-size:13px;"></div>
+      <div class="table-wrap hidden" id="costFilePreviewWrap" style="max-height:360px; margin-top:10px;">
+        <table>
+          <thead>
+            <tr><th></th><th>SKU</th><th>Cód. Proveedor</th><th>Nombre</th><th>Costo actual</th><th>Costo nuevo</th><th>Variación</th></tr>
+          </thead>
+          <tbody id="costFilePreviewBody"></tbody>
+        </table>
+      </div>
+      <div class="row" id="costFileConfirmRow" style="margin-top:10px; display:none;">
+        <button id="costFileConfirmBtn" class="save-btn">Confirmar actualización</button>
+        <button id="costFileCancelBtn" class="secondary">Cancelar</button>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>Catálogo de productos</h2>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>SKU</th><th>EAN</th><th>Nombre</th><th>Categoría</th><th>Proveedor</th><th>Unidad</th>
+              <th>SKU</th><th>EAN</th><th>Cód. Proveedor</th><th>Nombre</th><th>Categoría</th><th>Proveedor</th><th>Unidad</th>
               <th>Costo</th><th>Venta</th><th>Margen %</th><th>Stock</th><th>Mín.</th>
               <th>Estado</th><th>Actualizado</th><th></th>
             </tr>
@@ -401,7 +439,7 @@ async function describeError(res) {
 // ---------- Data loading ----------
 async function loadAll() {
   const [prodRows, catRows, provRows] = await Promise.all([
-    sheetsGet('Productos!A2:M1000'),
+    sheetsGet('Productos!A2:N1000'),
     sheetsGet('Categorias!A2:B50'),
     sheetsGet('Proveedores!A2:A50')
   ]);
@@ -428,7 +466,8 @@ async function loadAll() {
       stockMin: parseFloat(r[9]) || 0,
       estado: asStr(r[10]),
       actualizado: serialToDateStr(r[11]),
-      ean: asStr(r[12])
+      ean: asStr(r[12]),
+      codigoProveedor: asStr(r[13])
     });
   });
 
@@ -452,6 +491,7 @@ function populateFilterOptions() {
   fillSelect($('filterCategoria'), categorias);
   fillSelect($('filterProveedor'), proveedores);
   fillSelect($('bulkCategoria'), categorias);
+  fillSelect($('costFileProveedor'), proveedores);
 }
 
 // ---------- Rendering ----------
@@ -462,7 +502,7 @@ function renderTable() {
   const fBajo = $('filterBajo').checked;
 
   const filtered = products.filter(p => {
-    if (search && !(p.nombre.toLowerCase().includes(search) || p.sku.toLowerCase().includes(search) || (p.ean || '').toLowerCase().includes(search))) return false;
+    if (search && !(p.nombre.toLowerCase().includes(search) || p.sku.toLowerCase().includes(search) || (p.ean || '').toLowerCase().includes(search) || (p.codigoProveedor || '').toLowerCase().includes(search))) return false;
     if (fCat && p.categoria !== fCat) return false;
     if (fProv && p.proveedor !== fProv) return false;
     if (fBajo && p.estado !== 'Bajo') return false;
@@ -485,6 +525,7 @@ function renderTable() {
     tr.innerHTML = `
       <td>${escapeHtml(p.sku)}</td>
       <td><input type="text" value="${escapeHtml(p.ean)}" data-field="ean" data-row="${p.row}" style="width:130px"></td>
+      <td><input type="text" value="${escapeHtml(p.codigoProveedor)}" data-field="codigoProveedor" data-row="${p.row}" style="width:110px"></td>
       <td>${escapeHtml(p.nombre)}</td>
       <td>${escapeHtml(p.categoria)}</td>
       <td>${escapeHtml(p.proveedor)}</td>
@@ -522,14 +563,17 @@ async function saveRow(rowNum) {
   const costoInput = tr.find(i => i.dataset.field === 'costo');
   const ventaInput = tr.find(i => i.dataset.field === 'venta');
   const eanInput = tr.find(i => i.dataset.field === 'ean');
+  const codProvInput = tr.find(i => i.dataset.field === 'codigoProveedor');
   const newCosto = parseFloat(costoInput.value) || 0;
   const newVenta = parseFloat(ventaInput.value) || 0;
   const newEan = eanInput.value.trim();
+  const newCodProv = codProvInput.value.trim();
 
   const priceChanged = newCosto !== product.costo || newVenta !== product.venta;
   const eanChanged = newEan !== product.ean;
+  const codProvChanged = newCodProv !== product.codigoProveedor;
 
-  if (!priceChanged && !eanChanged) {
+  if (!priceChanged && !eanChanged && !codProvChanged) {
     setMsg('No hubo cambios para ' + product.sku + '.', '');
     return;
   }
@@ -548,6 +592,10 @@ async function saveRow(rowNum) {
     if (eanChanged) {
       await sheetsUpdate(`Productos!M${rowNum}`, [[newEan]]);
       product.ean = newEan;
+    }
+    if (codProvChanged) {
+      await sheetsUpdate(`Productos!N${rowNum}`, [[newCodProv]]);
+      product.codigoProveedor = newCodProv;
     }
     renderTable();
     setMsg((priceChanged ? 'Precio' : 'Datos') + ' de ' + product.sku + ' actualizado.', 'ok');
@@ -774,6 +822,143 @@ function cancelFileUpdate() {
   $('fileSummary').innerHTML = '';
 }
 
+// ---------- Actualización de precio de costo por proveedor (desde archivo) ----------
+let costFilePendingChanges = []; // [{product, newCost}]
+
+async function previewCostFileUpdate() {
+  const proveedor = $('costFileProveedor').value;
+  const file = $('costFileInput').files[0];
+
+  if (!proveedor) { setMsg('Elegí el proveedor a actualizar.', 'error'); return; }
+  if (!file) { setMsg('Elegí un archivo primero.', 'error'); return; }
+  if (!products.length) { setMsg('Conectá y cargá el catálogo antes de subir un archivo.', 'error'); return; }
+
+  setMsg('Leyendo archivo...', '');
+  $('costFilePreviewWrap').classList.add('hidden');
+  $('costFileConfirmRow').style.display = 'none';
+  costFilePendingChanges = [];
+
+  let rows;
+  try {
+    rows = await readFileAsRows(file);
+  } catch (e) {
+    setMsg(e.message, 'error');
+    return;
+  }
+
+  const skipZero = $('costFileSkipZero').checked;
+  const bySku = {};
+  let zeroSkipped = 0;
+  let filasValidas = 0;
+
+  // Fila 1 = encabezado, se ignora. Columna D = index 3 (código), columna I = index 8 (precio costo).
+  rows.slice(1).forEach(row => {
+    const codigoRaw = row[3];
+    const precioRaw = row[8];
+    const codigo = (codigoRaw === undefined || codigoRaw === null) ? '' : String(codigoRaw).trim();
+    if (!codigo) return;
+    filasValidas++;
+    const price = parseFloat(precioRaw);
+    if (isNaN(price) || (skipZero && price <= 0)) { zeroSkipped++; return; }
+    bySku[codigo] = price; // si hay repetidos, gana el último
+  });
+
+  const productosProveedor = products.filter(p => p.proveedor === proveedor);
+  const matched = [];
+  let noEncontrados = 0;
+  let sinCodigoProveedor = 0;
+  Object.keys(bySku).forEach(codigo => {
+    const product = productosProveedor.find(p => p.codigoProveedor === codigo);
+    if (!product) { noEncontrados++; return; }
+    const newCost = bySku[codigo];
+    matched.push({ product, newCost, changed: newCost !== product.costo });
+  });
+  sinCodigoProveedor = productosProveedor.filter(p => !p.codigoProveedor).length;
+
+  costFilePendingChanges = matched.filter(m => m.changed);
+
+  const tbody = $('costFilePreviewBody');
+  tbody.innerHTML = '';
+  matched.forEach(m => {
+    const tr = document.createElement('tr');
+    const variacion = m.product.costo > 0 ? (((m.newCost - m.product.costo) / m.product.costo) * 100).toFixed(1) + '%' : '—';
+    tr.innerHTML = `
+      <td><input type="checkbox" class="cost-file-row-check" data-sku="${escapeHtml(m.product.sku)}" ${m.changed ? 'checked' : ''}></td>
+      <td>${escapeHtml(m.product.sku)}</td>
+      <td>${escapeHtml(m.product.codigoProveedor)}</td>
+      <td>${escapeHtml(m.product.nombre)}</td>
+      <td>${m.product.costo}</td>
+      <td>${m.newCost}</td>
+      <td>${m.changed ? variacion : 'sin cambio'}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  $('costFileSummary').innerHTML =
+    `Productos de "${escapeHtml(proveedor)}" en tu catálogo: <b>${productosProveedor.length}</b> ` +
+    `(de los cuales <b>${sinCodigoProveedor}</b> no tienen Código Proveedor cargado) — ` +
+    `Códigos válidos en el archivo: <b>${filasValidas}</b> — ` +
+    `Coinciden con ese proveedor: <b>${matched.length}</b> — ` +
+    `Con cambio real de costo: <b>${costFilePendingChanges.length}</b> — ` +
+    `No encontrados: <b>${noEncontrados}</b> — ` +
+    `Ignorados (precio $0 o inválido): <b>${zeroSkipped}</b>`;
+
+  if (matched.length > 0) {
+    $('costFilePreviewWrap').classList.remove('hidden');
+    $('costFileConfirmRow').style.display = 'flex';
+  }
+  setMsg('Previsualización lista. Revisá los cambios antes de confirmar.', 'ok');
+}
+
+async function confirmCostFileUpdate() {
+  const checks = [...document.querySelectorAll('.cost-file-row-check:checked')].map(c => c.dataset.sku);
+  const toApply = costFilePendingChanges.filter(m => checks.includes(m.product.sku));
+
+  if (toApply.length === 0) {
+    setMsg('No hay filas marcadas para actualizar.', 'error');
+    return;
+  }
+  const proveedor = $('costFileProveedor').value;
+  if (!confirm(`Se va a actualizar el precio de costo de ${toApply.length} producto(s) de "${proveedor}". ¿Confirmar?`)) return;
+
+  const motivo = $('costFileMotivo').value.trim() || ('Actualización de costo desde archivo (' + proveedor + ')');
+  const today = new Date().toISOString().slice(0, 10);
+  const updateData = [];
+  const historialRows = [];
+
+  toApply.forEach(({ product, newCost }) => {
+    updateData.push({ range: `Productos!F${product.row}`, values: [[newCost]] });
+    updateData.push({ range: `Productos!L${product.row}`, values: [[today]] });
+    const variacion = product.costo > 0 ? ((newCost - product.costo) / product.costo) : 0;
+    historialRows.push([today, product.sku, product.nombre, product.costo, newCost, product.venta, product.venta, variacion, motivo]);
+    product._pendingCosto = newCost;
+  });
+
+  setMsg(`Actualizando ${toApply.length} producto(s)...`, '');
+  try {
+    await sheetsBatchUpdate(updateData);
+    await sheetsAppend('Historial_Precios!A:I', historialRows);
+    toApply.forEach(({ product }) => {
+      product.costo = product._pendingCosto;
+      product.actualizado = today;
+      delete product._pendingCosto;
+    });
+    renderTable();
+    setMsg(`Se actualizó el costo de ${toApply.length} producto(s) de "${proveedor}".`, 'ok');
+    cancelCostFileUpdate();
+  } catch (e) {
+    setMsg('Error al actualizar costos desde archivo: ' + e.message, 'error');
+  }
+}
+
+function cancelCostFileUpdate() {
+  costFilePendingChanges = [];
+  $('costFileInput').value = '';
+  $('costFilePreviewWrap').classList.add('hidden');
+  $('costFileConfirmRow').style.display = 'none';
+  $('costFileSummary').innerHTML = '';
+}
+
 // ---------- Events ----------
 $('connectBtn').addEventListener('click', connect);
 $('disconnectBtn').addEventListener('click', disconnect);
@@ -795,6 +980,9 @@ $('bulkApplyBtn').addEventListener('click', applyBulkUpdate);
 $('filePreviewBtn').addEventListener('click', previewFileUpdate);
 $('fileConfirmBtn').addEventListener('click', confirmFileUpdate);
 $('fileCancelBtn').addEventListener('click', cancelFileUpdate);
+$('costFilePreviewBtn').addEventListener('click', previewCostFileUpdate);
+$('costFileConfirmBtn').addEventListener('click', confirmCostFileUpdate);
+$('costFileCancelBtn').addEventListener('click', cancelCostFileUpdate);
 
 loadSavedConfig();
 </script>
