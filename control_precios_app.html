@@ -84,6 +84,8 @@
   .badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: bold; }
   .badge-ok { background: #D5F5E3; color: var(--verde); }
   .badge-bajo { background: #FFF3CD; color: #8A6500; }
+  .markup-ok { background: #D5F5E3 !important; color: var(--verde); font-weight: bold; }
+  .markup-low { background: #FADBD8 !important; color: var(--rojo-error); font-weight: bold; }
   .table-wrap { max-height: 560px; overflow: auto; border: 1px solid var(--borde); border-radius: 6px; }
   #msg { font-size: 13px; margin-top: 8px; min-height: 18px; }
   #msg.error { color: var(--rojo-error); }
@@ -147,16 +149,12 @@
           <input id="searchInput" type="text" placeholder="Ej: arroz, ALM-0001, 7791234567890">
         </div>
         <div>
-          <label>Categoría</label>
-          <select id="filterCategoria"><option value="">Todas</option></select>
+          <label>Pasillo/Sector</label>
+          <select id="filterCategoria"><option value="">Todos</option></select>
         </div>
         <div>
           <label>Proveedor</label>
           <select id="filterProveedor"><option value="">Todos</option></select>
-        </div>
-        <div>
-          <label>Pasillo/Sector</label>
-          <select id="filterPasillo"><option value="">Todos</option></select>
         </div>
         <div>
           <label>Bloque</label>
@@ -264,9 +262,8 @@
         <table>
           <thead>
             <tr>
-              <th>SKU</th><th>EAN</th><th>Cód. Proveedor</th><th>Nombre</th><th>Categoría</th><th>Proveedor</th><th>Pasillo/Sector</th><th>Bloque</th>
-              <th>Costo</th><th>Venta</th><th>Margen %</th><th>Stock</th><th>Mín.</th>
-              <th>Estado</th><th>Actualizado</th><th></th>
+              <th>SKU</th><th>EAN</th><th>Cód. Proveedor</th><th>Nombre</th><th>Pasillo/Sector</th><th>Proveedor</th><th>Bloque</th>
+              <th>Costo</th><th>Venta</th><th>Markup</th><th>Actualizado</th><th></th>
             </tr>
           </thead>
           <tbody id="productsBody">
@@ -276,7 +273,7 @@
       <div class="footer-stats">
         <div>Productos: <b id="statTotal">0</b></div>
         <div>Stock bajo: <b id="statBajo">0</b></div>
-        <div>Margen promedio: <b id="statMargen">0%</b></div>
+        <div>Markup promedio: <b id="statMargen">0%</b></div>
       </div>
     </div>
 
@@ -291,6 +288,7 @@ let accessToken = null;
 let products = []; // {row, sku, nombre, categoria, proveedor, unidad, costo, venta, stock, stockMin, estado, actualizado}
 let categorias = [];
 let proveedores = [];
+let proveedorMarkup = {}; // { nombreProveedor: markupPromedio (en puntos porcentuales) }
 
 const $ = (id) => document.getElementById(id);
 
@@ -444,11 +442,22 @@ async function loadAll() {
   const [prodRows, catRows, provRows] = await Promise.all([
     sheetsGet('Productos!A2:P1000'),
     sheetsGet('Categorias!A2:B50'),
-    sheetsGet('Proveedores!A2:A50')
+    sheetsGet('Proveedores!A2:F50')
   ]);
 
   categorias = catRows.filter(r => r[0]).map(r => r[0]);
   proveedores = provRows.filter(r => r[0]).map(r => r[0]);
+
+  // Markup promedio por proveedor (columna F). Acepta tanto "35" (35%) como "0.35"
+  // (por si la celda quedó formateada como porcentaje) y siempre lo deja en puntos
+  // porcentuales, comparable directo contra el Markup calculado por producto.
+  proveedorMarkup = {};
+  provRows.forEach(r => {
+    if (!r[0]) return;
+    const raw = parseFloat(r[5]);
+    if (isNaN(raw)) return;
+    proveedorMarkup[String(r[0]).trim()] = (raw > 0 && raw <= 1) ? raw * 100 : raw;
+  });
 
   products = [];
   const asStr = (v) => (v === undefined || v === null) ? '' : String(v).trim();
@@ -471,7 +480,6 @@ async function loadAll() {
       actualizado: serialToDateStr(r[11]),
       ean: asStr(r[12]),
       codigoProveedor: asStr(r[13]),
-      pasillo: asStr(r[14]),
       bloque: asStr(r[15])
     });
   });
@@ -484,7 +492,7 @@ function populateFilterOptions() {
   const fillSelect = (sel, items) => {
     const current = sel.value;
     sel.innerHTML = sel.id.startsWith('filter')
-      ? '<option value="">' + (sel.id === 'filterCategoria' ? 'Todas' : 'Todos') + '</option>'
+      ? '<option value="">Todos</option>'
       : '<option value="">Seleccionar...</option>';
     items.forEach(v => {
       const opt = document.createElement('option');
@@ -493,12 +501,10 @@ function populateFilterOptions() {
     });
     if (items.includes(current)) sel.value = current;
   };
-  const pasillos = [...new Set(products.map(p => p.pasillo).filter(v => v))].sort();
   const bloques = [...new Set(products.map(p => p.bloque).filter(v => v))].sort();
 
   fillSelect($('filterCategoria'), categorias);
   fillSelect($('filterProveedor'), proveedores);
-  fillSelect($('filterPasillo'), pasillos);
   fillSelect($('filterBloque'), bloques);
 }
 
@@ -507,7 +513,6 @@ function renderTable() {
   const search = $('searchInput').value.trim().toLowerCase();
   const fCat = $('filterCategoria').value;
   const fProv = $('filterProveedor').value;
-  const fPasillo = $('filterPasillo').value;
   const fBloque = $('filterBloque').value;
   const fBajo = $('filterBajo').checked;
 
@@ -515,7 +520,6 @@ function renderTable() {
     if (search && !(p.nombre.toLowerCase().includes(search) || p.sku.toLowerCase().includes(search) || (p.ean || '').toLowerCase().includes(search) || (p.codigoProveedor || '').toLowerCase().includes(search))) return false;
     if (fCat && p.categoria !== fCat) return false;
     if (fProv && p.proveedor !== fProv) return false;
-    if (fPasillo && p.pasillo !== fPasillo) return false;
     if (fBloque && p.bloque !== fBloque) return false;
     if (fBajo && p.estado !== 'Bajo') return false;
     return true;
@@ -534,6 +538,12 @@ function renderTable() {
     const margenPct = p.costo > 0 ? ((p.venta - p.costo) / p.costo * 100) : 0;
     sumMargen += margenPct; countMargen++;
 
+    const umbral = proveedorMarkup[p.proveedor];
+    let markupClass = '';
+    if (umbral !== undefined && !isNaN(umbral)) {
+      markupClass = margenPct >= umbral ? 'markup-ok' : 'markup-low';
+    }
+
     tr.innerHTML = `
       <td>${escapeHtml(p.sku)}</td>
       <td><input type="text" value="${escapeHtml(p.ean)}" data-field="ean" data-row="${p.row}" style="width:130px"></td>
@@ -541,14 +551,10 @@ function renderTable() {
       <td>${escapeHtml(p.nombre)}</td>
       <td>${escapeHtml(p.categoria)}</td>
       <td>${escapeHtml(p.proveedor)}</td>
-      <td><input type="text" value="${escapeHtml(p.pasillo)}" data-field="pasillo" data-row="${p.row}" style="width:90px"></td>
       <td><input type="text" value="${escapeHtml(p.bloque)}" data-field="bloque" data-row="${p.row}" style="width:80px"></td>
       <td><input type="number" step="0.01" value="${p.costo}" data-field="costo" data-row="${p.row}"></td>
       <td><input type="number" step="0.01" value="${p.venta}" data-field="venta" data-row="${p.row}"></td>
-      <td>${margenPct.toFixed(1)}%</td>
-      <td>${p.stock}</td>
-      <td>${p.stockMin}</td>
-      <td><span class="badge ${p.estado === 'Bajo' ? 'badge-bajo' : 'badge-ok'}">${p.estado || 'OK'}</span></td>
+      <td class="${markupClass}">${margenPct.toFixed(1)}%</td>
       <td>${escapeHtml(p.actualizado)}</td>
       <td><button class="save-btn" data-save-row="${p.row}">Guardar</button></td>
     `;
@@ -577,22 +583,19 @@ async function saveRow(rowNum) {
   const ventaInput = tr.find(i => i.dataset.field === 'venta');
   const eanInput = tr.find(i => i.dataset.field === 'ean');
   const codProvInput = tr.find(i => i.dataset.field === 'codigoProveedor');
-  const pasilloInput = tr.find(i => i.dataset.field === 'pasillo');
   const bloqueInput = tr.find(i => i.dataset.field === 'bloque');
   const newCosto = parseFloat(costoInput.value) || 0;
   const newVenta = parseFloat(ventaInput.value) || 0;
   const newEan = eanInput.value.trim();
   const newCodProv = codProvInput.value.trim();
-  const newPasillo = pasilloInput.value.trim();
   const newBloque = bloqueInput.value.trim();
 
   const priceChanged = newCosto !== product.costo || newVenta !== product.venta;
   const eanChanged = newEan !== product.ean;
   const codProvChanged = newCodProv !== product.codigoProveedor;
-  const pasilloChanged = newPasillo !== product.pasillo;
   const bloqueChanged = newBloque !== product.bloque;
 
-  if (!priceChanged && !eanChanged && !codProvChanged && !pasilloChanged && !bloqueChanged) {
+  if (!priceChanged && !eanChanged && !codProvChanged && !bloqueChanged) {
     setMsg('No hubo cambios para ' + product.sku + '.', '');
     return;
   }
@@ -615,10 +618,6 @@ async function saveRow(rowNum) {
     if (codProvChanged) {
       await sheetsUpdate(`Productos!N${rowNum}`, [[newCodProv]]);
       product.codigoProveedor = newCodProv;
-    }
-    if (pasilloChanged) {
-      await sheetsUpdate(`Productos!O${rowNum}`, [[newPasillo]]);
-      product.pasillo = newPasillo;
     }
     if (bloqueChanged) {
       await sheetsUpdate(`Productos!P${rowNum}`, [[newBloque]]);
@@ -954,7 +953,6 @@ $('reloadBtn').addEventListener('click', async () => {
 $('searchInput').addEventListener('input', renderTable);
 $('filterCategoria').addEventListener('change', renderTable);
 $('filterProveedor').addEventListener('change', renderTable);
-$('filterPasillo').addEventListener('change', renderTable);
 $('filterBloque').addEventListener('change', renderTable);
 $('filterBajo').addEventListener('change', renderTable);
 $('filePreviewBtn').addEventListener('click', previewFileUpdate);
