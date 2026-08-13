@@ -36,7 +36,7 @@
     border-bottom: 4px solid var(--amarillo-marca);
   }
   header .brand { display: flex; align-items: center; gap: 12px; }
-  header .brand img { height: 46px; width: 46px; display: block; border-radius: 6px; }
+  header .brand img { height: 92px; width: 92px; display: block; border-radius: 10px; }
   header h1 { font-size: 19px; margin: 0; line-height: 1.2; }
   header h1 small { display: block; font-size: 12px; font-weight: normal; opacity: 0.85; }
   #status { font-size: 13px; opacity: 0.9; }
@@ -94,8 +94,6 @@
   small.help { color: #777; display: block; margin-top: 4px; }
   .save-btn { background: var(--verde); }
   .save-btn:hover { background: #166638; }
-  #bulkApplyBtn { background: var(--amarillo-marca); color: #402d00; }
-  #bulkApplyBtn:hover { background: var(--amarillo-marca-oscuro); }
 </style>
 </head>
 <body>
@@ -114,21 +112,28 @@
     <h2>Conexión con Google Sheets</h2>
     <div class="row">
       <div>
-        <label>Google OAuth Client ID</label>
-        <input id="clientId" type="text" placeholder="xxxxxxxx.apps.googleusercontent.com" size="42">
-      </div>
-      <div>
-        <label>ID de la hoja de cálculo</label>
-        <input id="sheetId" type="text" placeholder="ID desde la URL de Google Sheets" size="42">
-      </div>
-      <div>
         <button id="connectBtn">Conectar con Google</button>
       </div>
       <div>
         <button id="disconnectBtn" class="secondary hidden">Desconectar</button>
       </div>
+      <div>
+        <button id="configToggleBtn" class="secondary" type="button">⚙ Configuración</button>
+      </div>
     </div>
-    <small class="help">El Client ID y el ID de la hoja se guardan solo en este navegador. Ver la guía de configuración adjunta para crearlos.</small>
+    <div id="configFields" class="hidden" style="margin-top:12px;">
+      <div class="row">
+        <div>
+          <label>Google OAuth Client ID</label>
+          <input id="clientId" type="text" placeholder="xxxxxxxx.apps.googleusercontent.com" size="42">
+        </div>
+        <div>
+          <label>ID de la hoja de cálculo</label>
+          <input id="sheetId" type="text" placeholder="ID desde la URL de Google Sheets" size="42">
+        </div>
+      </div>
+      <small class="help">El Client ID y el ID de la hoja se guardan solo en este navegador. Ver la guía de configuración adjunta para crearlos.</small>
+    </div>
     <div id="msg"></div>
   </div>
 
@@ -150,6 +155,14 @@
           <select id="filterProveedor"><option value="">Todos</option></select>
         </div>
         <div>
+          <label>Pasillo/Sector</label>
+          <select id="filterPasillo"><option value="">Todos</option></select>
+        </div>
+        <div>
+          <label>Bloque</label>
+          <select id="filterBloque"><option value="">Todos</option></select>
+        </div>
+        <div>
           <label><input type="checkbox" id="filterBajo"> Solo stock bajo</label>
         </div>
         <div>
@@ -159,45 +172,11 @@
     </div>
 
     <div class="card">
-      <h2>Actualización de precios por categoría</h2>
-      <div class="row">
-        <div>
-          <label>Categoría</label>
-          <select id="bulkCategoria"><option value="">Seleccionar...</option></select>
-        </div>
-        <div>
-          <label>Aplicar a</label>
-          <select id="bulkTarget">
-            <option value="venta">Precio de venta</option>
-            <option value="costo">Precio de costo</option>
-            <option value="ambos">Costo y venta</option>
-          </select>
-        </div>
-        <div>
-          <label>Variación %</label>
-          <input id="bulkPct" type="number" step="0.1" placeholder="Ej: 10 o -5" style="width:100px">
-        </div>
-        <div>
-          <label>Motivo</label>
-          <input id="bulkMotivo" type="text" placeholder="Ej: ajuste por inflación" size="24">
-        </div>
-        <div>
-          <button id="bulkApplyBtn">Aplicar a categoría</button>
-        </div>
-      </div>
-      <small class="help">Redondea al peso más cercano. Registra cada cambio en el historial de precios.</small>
-    </div>
-
-    <div class="card">
       <h2>Actualizar precio de venta desde archivo</h2>
       <div class="row">
         <div>
-          <label>Archivo (.xls, .xlsx o .csv)</label>
+          <label>Archivo</label>
           <input id="fileInput" type="file" accept=".xls,.xlsx,.csv">
-        </div>
-        <div>
-          <label>Motivo</label>
-          <input id="fileMotivo" type="text" placeholder="Ej: lista de precios del proveedor" size="24">
         </div>
         <div>
           <label><input type="checkbox" id="fileSkipZero" checked> Ignorar precios en $0 del archivo</label>
@@ -206,7 +185,6 @@
           <button id="filePreviewBtn">Previsualizar cambios</button>
         </div>
       </div>
-      <small class="help">El archivo debe tener el código (SKU) en la columna A y el precio de venta en la columna E, una fila por producto. Se ignoran automáticamente las filas que no tengan un código numérico en A (encabezados, categorías, etc.).</small>
       <div id="fileSummary" style="margin-top:10px; font-size:13px;"></div>
       <div class="table-wrap hidden" id="filePreviewWrap" style="max-height:360px; margin-top:10px;">
         <table>
@@ -226,7 +204,7 @@
       <h2>Actualizar costo — Borla Hnos</h2>
       <div class="row">
         <div>
-          <label>Archivo (.xls, .xlsx o .csv)</label>
+          <label>Archivo</label>
           <input id="borlaFileInput" type="file" accept=".xls,.xlsx,.csv">
         </div>
         <div>
@@ -236,7 +214,6 @@
           <button id="borlaFilePreviewBtn">Previsualizar cambios</button>
         </div>
       </div>
-      <small class="help">Solo actualiza los productos de tu catálogo con proveedor "Borla Hnos" y cuyo <b>Código Proveedor</b> (columna N de la hoja Productos) coincida con el código de la columna D del archivo (precio en columna I).</small>
       <div id="borlaFileSummary" style="margin-top:10px; font-size:13px;"></div>
       <div class="table-wrap hidden" id="borlaFilePreviewWrap" style="max-height:360px; margin-top:10px;">
         <table>
@@ -256,7 +233,7 @@
       <h2>Actualizar costo — VCC 365</h2>
       <div class="row">
         <div>
-          <label>Archivo (.xls, .xlsx o .csv)</label>
+          <label>Archivo</label>
           <input id="vccFileInput" type="file" accept=".xls,.xlsx,.csv">
         </div>
         <div>
@@ -266,7 +243,6 @@
           <button id="vccFilePreviewBtn">Previsualizar cambios</button>
         </div>
       </div>
-      <small class="help">Solo actualiza los productos de tu catálogo con proveedor "VCC 365" y cuyo <b>Código Proveedor</b> (columna N de la hoja Productos) coincida con el código de la columna E del archivo (precio en columna S).</small>
       <div id="vccFileSummary" style="margin-top:10px; font-size:13px;"></div>
       <div class="table-wrap hidden" id="vccFilePreviewWrap" style="max-height:360px; margin-top:10px;">
         <table>
@@ -288,7 +264,7 @@
         <table>
           <thead>
             <tr>
-              <th>SKU</th><th>EAN</th><th>Cód. Proveedor</th><th>Nombre</th><th>Categoría</th><th>Proveedor</th><th>Unidad</th>
+              <th>SKU</th><th>EAN</th><th>Cód. Proveedor</th><th>Nombre</th><th>Categoría</th><th>Proveedor</th><th>Pasillo/Sector</th><th>Bloque</th>
               <th>Costo</th><th>Venta</th><th>Margen %</th><th>Stock</th><th>Mín.</th>
               <th>Estado</th><th>Actualizado</th><th></th>
             </tr>
@@ -334,6 +310,11 @@ function loadSavedConfig() {
   const sid = localStorage.getItem('cp_sheet_id');
   if (cid) $('clientId').value = cid;
   if (sid) $('sheetId').value = sid;
+  // Si todavía no hay datos guardados, mostrar la configuración directamente.
+  if (!cid || !sid) $('configFields').classList.remove('hidden');
+}
+function toggleConfigFields() {
+  $('configFields').classList.toggle('hidden');
 }
 function saveConfig() {
   localStorage.setItem('cp_client_id', $('clientId').value.trim());
@@ -461,7 +442,7 @@ async function describeError(res) {
 // ---------- Data loading ----------
 async function loadAll() {
   const [prodRows, catRows, provRows] = await Promise.all([
-    sheetsGet('Productos!A2:N1000'),
+    sheetsGet('Productos!A2:P1000'),
     sheetsGet('Categorias!A2:B50'),
     sheetsGet('Proveedores!A2:A50')
   ]);
@@ -489,7 +470,9 @@ async function loadAll() {
       estado: asStr(r[10]),
       actualizado: serialToDateStr(r[11]),
       ean: asStr(r[12]),
-      codigoProveedor: asStr(r[13])
+      codigoProveedor: asStr(r[13]),
+      pasillo: asStr(r[14]),
+      bloque: asStr(r[15])
     });
   });
 
@@ -510,9 +493,13 @@ function populateFilterOptions() {
     });
     if (items.includes(current)) sel.value = current;
   };
+  const pasillos = [...new Set(products.map(p => p.pasillo).filter(v => v))].sort();
+  const bloques = [...new Set(products.map(p => p.bloque).filter(v => v))].sort();
+
   fillSelect($('filterCategoria'), categorias);
   fillSelect($('filterProveedor'), proveedores);
-  fillSelect($('bulkCategoria'), categorias);
+  fillSelect($('filterPasillo'), pasillos);
+  fillSelect($('filterBloque'), bloques);
 }
 
 // ---------- Rendering ----------
@@ -520,12 +507,16 @@ function renderTable() {
   const search = $('searchInput').value.trim().toLowerCase();
   const fCat = $('filterCategoria').value;
   const fProv = $('filterProveedor').value;
+  const fPasillo = $('filterPasillo').value;
+  const fBloque = $('filterBloque').value;
   const fBajo = $('filterBajo').checked;
 
   const filtered = products.filter(p => {
     if (search && !(p.nombre.toLowerCase().includes(search) || p.sku.toLowerCase().includes(search) || (p.ean || '').toLowerCase().includes(search) || (p.codigoProveedor || '').toLowerCase().includes(search))) return false;
     if (fCat && p.categoria !== fCat) return false;
     if (fProv && p.proveedor !== fProv) return false;
+    if (fPasillo && p.pasillo !== fPasillo) return false;
+    if (fBloque && p.bloque !== fBloque) return false;
     if (fBajo && p.estado !== 'Bajo') return false;
     return true;
   });
@@ -550,7 +541,8 @@ function renderTable() {
       <td>${escapeHtml(p.nombre)}</td>
       <td>${escapeHtml(p.categoria)}</td>
       <td>${escapeHtml(p.proveedor)}</td>
-      <td>${escapeHtml(p.unidad)}</td>
+      <td><input type="text" value="${escapeHtml(p.pasillo)}" data-field="pasillo" data-row="${p.row}" style="width:90px"></td>
+      <td><input type="text" value="${escapeHtml(p.bloque)}" data-field="bloque" data-row="${p.row}" style="width:80px"></td>
       <td><input type="number" step="0.01" value="${p.costo}" data-field="costo" data-row="${p.row}"></td>
       <td><input type="number" step="0.01" value="${p.venta}" data-field="venta" data-row="${p.row}"></td>
       <td>${margenPct.toFixed(1)}%</td>
@@ -585,16 +577,22 @@ async function saveRow(rowNum) {
   const ventaInput = tr.find(i => i.dataset.field === 'venta');
   const eanInput = tr.find(i => i.dataset.field === 'ean');
   const codProvInput = tr.find(i => i.dataset.field === 'codigoProveedor');
+  const pasilloInput = tr.find(i => i.dataset.field === 'pasillo');
+  const bloqueInput = tr.find(i => i.dataset.field === 'bloque');
   const newCosto = parseFloat(costoInput.value) || 0;
   const newVenta = parseFloat(ventaInput.value) || 0;
   const newEan = eanInput.value.trim();
   const newCodProv = codProvInput.value.trim();
+  const newPasillo = pasilloInput.value.trim();
+  const newBloque = bloqueInput.value.trim();
 
   const priceChanged = newCosto !== product.costo || newVenta !== product.venta;
   const eanChanged = newEan !== product.ean;
   const codProvChanged = newCodProv !== product.codigoProveedor;
+  const pasilloChanged = newPasillo !== product.pasillo;
+  const bloqueChanged = newBloque !== product.bloque;
 
-  if (!priceChanged && !eanChanged && !codProvChanged) {
+  if (!priceChanged && !eanChanged && !codProvChanged && !pasilloChanged && !bloqueChanged) {
     setMsg('No hubo cambios para ' + product.sku + '.', '');
     return;
   }
@@ -618,6 +616,14 @@ async function saveRow(rowNum) {
       await sheetsUpdate(`Productos!N${rowNum}`, [[newCodProv]]);
       product.codigoProveedor = newCodProv;
     }
+    if (pasilloChanged) {
+      await sheetsUpdate(`Productos!O${rowNum}`, [[newPasillo]]);
+      product.pasillo = newPasillo;
+    }
+    if (bloqueChanged) {
+      await sheetsUpdate(`Productos!P${rowNum}`, [[newBloque]]);
+      product.bloque = newBloque;
+    }
     renderTable();
     setMsg((priceChanged ? 'Precio' : 'Datos') + ' de ' + product.sku + ' actualizado.', 'ok');
   } catch (e) {
@@ -634,60 +640,6 @@ async function appendHistorial(product, newCosto, newVenta, motivo) {
     product.venta, newVenta,
     variacion, motivo
   ]]);
-}
-
-// ---------- Bulk update by category ----------
-async function applyBulkUpdate() {
-  const cat = $('bulkCategoria').value;
-  const target = $('bulkTarget').value;
-  const pct = parseFloat($('bulkPct').value);
-  const motivo = $('bulkMotivo').value.trim() || ('Ajuste por categoría ' + cat);
-
-  if (!cat) { setMsg('Elegí una categoría.', 'error'); return; }
-  if (isNaN(pct) || pct === 0) { setMsg('Ingresá un porcentaje distinto de 0.', 'error'); return; }
-
-  const affected = products.filter(p => p.categoria === cat);
-  if (affected.length === 0) { setMsg('No hay productos en esa categoría.', 'error'); return; }
-
-  if (!confirm(`Se va a aplicar ${pct}% a ${affected.length} producto(s) de "${cat}" (${target}). ¿Confirmar?`)) return;
-
-  setMsg(`Actualizando ${affected.length} producto(s)...`, '');
-  const today = new Date().toISOString().slice(0, 10);
-  const updateData = [];
-  const historialRows = [];
-
-  affected.forEach(p => {
-    let newCosto = p.costo, newVenta = p.venta;
-    if (target === 'costo' || target === 'ambos') newCosto = Math.round(p.costo * (1 + pct / 100));
-    if (target === 'venta' || target === 'ambos') newVenta = Math.round(p.venta * (1 + pct / 100));
-
-    updateData.push({ range: `Productos!F${p.row}:G${p.row}`, values: [[newCosto, newVenta]] });
-    updateData.push({ range: `Productos!L${p.row}`, values: [[today]] });
-
-    const variacionVenta = p.venta > 0 ? ((newVenta - p.venta) / p.venta) : 0;
-    historialRows.push([today, p.sku, p.nombre, p.costo, newCosto, p.venta, newVenta, variacionVenta, motivo]);
-
-    p._pendingCosto = newCosto;
-    p._pendingVenta = newVenta;
-  });
-
-  try {
-    await sheetsBatchUpdate(updateData);
-    await sheetsAppend('Historial_Precios!A:I', historialRows);
-
-    affected.forEach(p => {
-      p.costo = p._pendingCosto;
-      p.venta = p._pendingVenta;
-      p.actualizado = today;
-      delete p._pendingCosto;
-      delete p._pendingVenta;
-    });
-    renderTable();
-    setMsg(`Se actualizaron ${affected.length} producto(s) de "${cat}".`, 'ok');
-    $('bulkPct').value = '';
-  } catch (e) {
-    setMsg('Error en la actualización masiva: ' + e.message, 'error');
-  }
 }
 
 // ---------- Actualización de precio de venta desde archivo ----------
@@ -805,7 +757,7 @@ async function confirmFileUpdate() {
   }
   if (!confirm(`Se va a actualizar el precio de venta de ${toApply.length} producto(s). ¿Confirmar?`)) return;
 
-  const motivo = $('fileMotivo').value.trim() || 'Actualización desde archivo';
+  const motivo = 'Actualización desde archivo';
   const today = new Date().toISOString().slice(0, 10);
   const updateData = [];
   const historialRows = [];
@@ -988,6 +940,7 @@ function cancelCostFileUpdate(prefix) {
 // ---------- Events ----------
 $('connectBtn').addEventListener('click', connect);
 $('disconnectBtn').addEventListener('click', disconnect);
+$('configToggleBtn').addEventListener('click', toggleConfigFields);
 $('reloadBtn').addEventListener('click', async () => {
   setMsg('Recargando...', '');
   try {
@@ -1001,8 +954,9 @@ $('reloadBtn').addEventListener('click', async () => {
 $('searchInput').addEventListener('input', renderTable);
 $('filterCategoria').addEventListener('change', renderTable);
 $('filterProveedor').addEventListener('change', renderTable);
+$('filterPasillo').addEventListener('change', renderTable);
+$('filterBloque').addEventListener('change', renderTable);
 $('filterBajo').addEventListener('change', renderTable);
-$('bulkApplyBtn').addEventListener('click', applyBulkUpdate);
 $('filePreviewBtn').addEventListener('click', previewFileUpdate);
 $('fileConfirmBtn').addEventListener('click', confirmFileUpdate);
 $('fileCancelBtn').addEventListener('click', cancelFileUpdate);
