@@ -187,7 +187,11 @@
         <div>
           <button id="reloadBtn" class="secondary">Recargar datos</button>
         </div>
+        <div>
+          <button id="exportExcelBtn" class="secondary">Exportar a Excel</button>
+        </div>
       </div>
+      <small class="help">Exporta los productos visibles según los filtros de arriba, con las columnas CODIGO / DESCRIPCION / COSTO / VENTA.</small>
     </div>
 
     <div class="card">
@@ -562,14 +566,14 @@ function populateFilterOptions() {
 }
 
 // ---------- Rendering ----------
-function renderTable() {
+function getFilteredProducts() {
   const search = $('searchInput').value.trim().toLowerCase();
   const fCat = $('filterCategoria').value;
   const fProv = $('filterProveedor').value;
   const fBloque = $('filterBloque').value;
   const fBajo = $('filterBajo').checked;
 
-  const filtered = products.filter(p => {
+  return products.filter(p => {
     if (search && !(p.nombre.toLowerCase().includes(search) || p.sku.toLowerCase().includes(search) || (p.ean || '').toLowerCase().includes(search) || (p.codigoProveedor || '').toLowerCase().includes(search))) return false;
     if (fCat && p.categoria !== fCat) return false;
     if (fProv && p.proveedor !== fProv) return false;
@@ -577,6 +581,10 @@ function renderTable() {
     if (fBajo && p.estado !== 'Bajo') return false;
     return true;
   });
+}
+
+function renderTable() {
+  const filtered = getFilteredProducts();
 
   const tbody = $('productsBody');
   tbody.innerHTML = '';
@@ -625,6 +633,41 @@ function renderTable() {
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ---------- Exportar a Excel (estructura CODIGO / DESCRIPCION / COSTO / VENTA) ----------
+function exportToExcel() {
+  if (!products.length) { setMsg('Conectá y cargá el catálogo antes de exportar.', 'error'); return; }
+
+  const rows = getFilteredProducts();
+  if (!rows.length) { setMsg('No hay productos para exportar con los filtros actuales.', 'error'); return; }
+
+  const data = [['CODIGO', 'DESCRIPCION', 'COSTO', 'VENTA']];
+  rows.forEach(p => {
+    const codigo = /^\d+$/.test(p.sku) ? Number(p.sku) : p.sku;
+    data.push([codigo, p.nombre, p.costo, p.venta]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = [{ wch: 12 }, { wch: 35 }, { wch: 12 }, { wch: 12 }];
+
+  // Encabezado en negrita y formato moneda para Costo/Venta (si el navegador respeta estilos al exportar).
+  ['A1', 'B1', 'C1', 'D1'].forEach(ref => {
+    if (ws[ref]) ws[ref].s = { font: { bold: true } };
+  });
+  for (let r = 2; r <= data.length; r++) {
+    ['C', 'D'].forEach(col => {
+      const ref = col + r;
+      if (ws[ref]) ws[ref].z = '"$"#,##0.00';
+    });
+  }
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'ActualizacioPrecio.rpt');
+
+  const today = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `actualizacion_precios_${today}.xlsx`, { cellStyles: true });
+  setMsg(`Se exportaron ${rows.length} producto(s) a Excel.`, 'ok');
 }
 
 // ---------- Single row save ----------
@@ -1108,6 +1151,7 @@ $('reloadBtn').addEventListener('click', async () => {
     console.error('Error recargando datos:', e);
   }
 });
+$('exportExcelBtn').addEventListener('click', exportToExcel);
 $('searchInput').addEventListener('input', renderTable);
 $('filterCategoria').addEventListener('change', renderTable);
 $('filterProveedor').addEventListener('change', renderTable);
