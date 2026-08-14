@@ -6,6 +6,7 @@
 <title>Control de Precios - Super Popular</title>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 <style>
   :root {
     --rojo-marca: #E3010F;
@@ -97,6 +98,11 @@
   small.help { color: #777; display: block; margin-top: 4px; }
   .save-btn { background: var(--verde); }
   .save-btn:hover { background: #166638; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.65); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+  .modal-box { background: #fff; border-radius: 8px; padding: 16px 20px; width: 100%; max-width: 420px; border-top: 3px solid var(--rojo-marca); }
+  .modal-box h3 { margin: 0 0 12px; font-size: 15px; color: var(--rojo-marca); }
+  #cameraReader { width: 100%; border-radius: 6px; overflow: hidden; }
+  #cameraScanMsg { font-size: 13px; color: var(--rojo-error); margin-top: 8px; min-height: 16px; }
 
   /* ---------- Responsive (celular / tablet) ---------- */
   @media (max-width: 720px) {
@@ -169,6 +175,10 @@
         <div>
           <label>Buscar (nombre, SKU o EAN)</label>
           <input id="searchInput" type="text" placeholder="Ej: arroz, ALM-0001, 7791234567890">
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button id="scanCameraBtn" type="button" class="secondary">📷 Escanear con cámara</button>
         </div>
         <div>
           <label>Pasillo/Sector</label>
@@ -332,6 +342,17 @@
       </div>
     </div>
 
+  </div>
+
+  <div id="cameraModal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <h3>Escanear código con la cámara</h3>
+      <div id="cameraReader"></div>
+      <div id="cameraScanMsg"></div>
+      <div class="row" style="margin-top:12px;">
+        <button id="cameraCloseBtn" class="secondary" type="button">Cerrar</button>
+      </div>
+    </div>
   </div>
 
 </main>
@@ -660,6 +681,61 @@ function renderTable() {
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ---------- Escanear código EAN con la cámara del dispositivo ----------
+let html5QrCode = null;
+let cameraScanning = false;
+
+async function openCameraScanner() {
+  $('cameraScanMsg').textContent = '';
+  $('cameraModal').classList.remove('hidden');
+
+  if (typeof Html5Qrcode === 'undefined') {
+    $('cameraScanMsg').textContent = 'No se pudo cargar la librería de escaneo. Revisá tu conexión a internet.';
+    return;
+  }
+
+  try {
+    html5QrCode = new Html5Qrcode('cameraReader');
+    const config = {
+      fps: 10,
+      qrbox: { width: 260, height: 160 },
+      formatsToSupport: [
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.UPC_E,
+        Html5QrcodeSupportedFormats.CODE_128
+      ]
+    };
+    await html5QrCode.start(
+      { facingMode: 'environment' },
+      config,
+      (decodedText) => {
+        $('searchInput').value = decodedText.trim();
+        renderTable();
+        closeCameraScanner();
+        $('searchInput').focus();
+      },
+      () => {} // ignorar los intentos fallidos de decodificación cuadro a cuadro
+    );
+    cameraScanning = true;
+  } catch (err) {
+    const detail = (err && err.message) ? err.message : String(err);
+    $('cameraScanMsg').textContent = 'No se pudo acceder a la cámara: ' + detail + '. Revisá que le hayas dado permiso de cámara al navegador, y que estés accediendo por https:// (o localhost).';
+  }
+}
+
+async function closeCameraScanner() {
+  $('cameraModal').classList.add('hidden');
+  if (html5QrCode && cameraScanning) {
+    try {
+      await html5QrCode.stop();
+      html5QrCode.clear();
+    } catch (e) { /* la cámara ya se pudo haber detenido sola */ }
+  }
+  cameraScanning = false;
 }
 
 // ---------- Exportar a Excel (estructura CODIGO / DESCRIPCION / COSTO / VENTA) ----------
@@ -1204,6 +1280,8 @@ $('searchInput').addEventListener('keydown', (e) => {
     e.target.select();
   }
 });
+$('scanCameraBtn').addEventListener('click', openCameraScanner);
+$('cameraCloseBtn').addEventListener('click', closeCameraScanner);
 $('filterCategoria').addEventListener('change', renderTable);
 $('filterProveedor').addEventListener('change', renderTable);
 $('filterBloque').addEventListener('change', renderTable);
