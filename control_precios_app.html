@@ -96,6 +96,27 @@
   small.help { color: #777; display: block; margin-top: 4px; }
   .save-btn { background: var(--verde); }
   .save-btn:hover { background: #166638; }
+
+  /* ---------- Responsive (celular / tablet) ---------- */
+  @media (max-width: 720px) {
+    header { padding: 10px 14px; gap: 10px; }
+    header .brand { gap: 8px; }
+    header .brand img { height: 52px; width: 52px; border-radius: 8px; }
+    header h1 { font-size: 15px; }
+    header h1 small { font-size: 11px; }
+    #status { font-size: 11px; }
+    main { margin: 12px auto; padding: 0 10px 40px; }
+    .card { padding: 12px 14px; margin-bottom: 14px; }
+    .card h2 { font-size: 14px; }
+    .row { gap: 10px; }
+    .row > div, .row > button { width: 100%; }
+    .row input, .row select { width: 100%; box-sizing: border-box; }
+    button { width: 100%; box-sizing: border-box; padding: 10px 16px; }
+    .footer-stats { flex-direction: column; gap: 6px; }
+    table { font-size: 12px; }
+    th, td { padding: 5px 6px; }
+    td input { width: 80px; }
+  }
 </style>
 </head>
 <body>
@@ -166,6 +187,37 @@
         <div>
           <button id="reloadBtn" class="secondary">Recargar datos</button>
         </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Actualización masiva de precio de venta por proveedor</h2>
+      <div class="row">
+        <div>
+          <label>Proveedor</label>
+          <select id="bulkVentaProveedor"><option value="">Seleccionar...</option></select>
+        </div>
+        <div>
+          <label>Markup deseado (%)</label>
+          <input id="bulkVentaMarkup" type="number" step="0.1" placeholder="Ej: 35" style="width:100px">
+        </div>
+        <div>
+          <button id="bulkVentaPreviewBtn">Previsualizar cambios</button>
+        </div>
+      </div>
+      <small class="help">Calcula el nuevo precio de venta como Costo × (1 + markup%) para cada producto del proveedor elegido. Los productos sin costo cargado no se pueden actualizar por este método.</small>
+      <div id="bulkVentaSummary" style="margin-top:10px; font-size:13px;"></div>
+      <div class="table-wrap hidden" id="bulkVentaPreviewWrap" style="max-height:360px; margin-top:10px;">
+        <table>
+          <thead>
+            <tr><th></th><th>SKU</th><th>Nombre</th><th>Costo</th><th>Venta actual</th><th>Venta nueva</th><th>Markup actual</th></tr>
+          </thead>
+          <tbody id="bulkVentaPreviewBody"></tbody>
+        </table>
+      </div>
+      <div class="row" id="bulkVentaConfirmRow" style="margin-top:10px; display:none;">
+        <button id="bulkVentaConfirmBtn" class="save-btn">Confirmar actualización</button>
+        <button id="bulkVentaCancelBtn" class="secondary">Cancelar</button>
       </div>
     </div>
 
@@ -506,6 +558,7 @@ function populateFilterOptions() {
   fillSelect($('filterCategoria'), categorias);
   fillSelect($('filterProveedor'), proveedores);
   fillSelect($('filterBloque'), bloques);
+  fillSelect($('bulkVentaProveedor'), proveedores);
 }
 
 // ---------- Rendering ----------
@@ -639,6 +692,111 @@ async function appendHistorial(product, newCosto, newVenta, motivo) {
     product.venta, newVenta,
     variacion, motivo
   ]]);
+}
+
+// ---------- Actualización masiva de precio de venta por proveedor ----------
+let bulkVentaPendingChanges = []; // [{product, newVenta}]
+
+async function previewBulkVenta() {
+  const proveedor = $('bulkVentaProveedor').value;
+  const markup = parseFloat($('bulkVentaMarkup').value);
+
+  if (!proveedor) { setMsg('Elegí un proveedor.', 'error'); return; }
+  if (isNaN(markup)) { setMsg('Ingresá un markup válido.', 'error'); return; }
+  if (!products.length) { setMsg('Conectá y cargá el catálogo antes.', 'error'); return; }
+
+  $('bulkVentaPreviewWrap').classList.add('hidden');
+  $('bulkVentaConfirmRow').style.display = 'none';
+  bulkVentaPendingChanges = [];
+
+  const productosProveedor = products.filter(p => p.proveedor === proveedor);
+  const sinCosto = productosProveedor.filter(p => !(p.costo > 0));
+  const conCosto = productosProveedor.filter(p => p.costo > 0);
+
+  const matched = conCosto.map(p => {
+    const newVenta = Math.round(p.costo * (1 + markup / 100));
+    const markupActual = p.costo > 0 ? ((p.venta - p.costo) / p.costo * 100) : 0;
+    return { product: p, newVenta, markupActual, changed: newVenta !== p.venta };
+  });
+
+  bulkVentaPendingChanges = matched.filter(m => m.changed);
+
+  const tbody = $('bulkVentaPreviewBody');
+  tbody.innerHTML = '';
+  matched.forEach(m => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="checkbox" class="bulk-venta-row-check" data-sku="${escapeHtml(m.product.sku)}" ${m.changed ? 'checked' : ''}></td>
+      <td>${escapeHtml(m.product.sku)}</td>
+      <td>${escapeHtml(m.product.nombre)}</td>
+      <td>${m.product.costo}</td>
+      <td>${m.product.venta}</td>
+      <td>${m.newVenta}</td>
+      <td>${m.markupActual.toFixed(1)}%</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  $('bulkVentaSummary').innerHTML =
+    `Productos de "${escapeHtml(proveedor)}": <b>${productosProveedor.length}</b> — ` +
+    `Sin costo cargado (no se pueden actualizar): <b>${sinCosto.length}</b> — ` +
+    `Con cambio real de precio: <b>${bulkVentaPendingChanges.length}</b>`;
+
+  if (matched.length > 0) {
+    $('bulkVentaPreviewWrap').classList.remove('hidden');
+    $('bulkVentaConfirmRow').style.display = 'flex';
+  }
+  setMsg('Previsualización lista. Revisá los cambios antes de confirmar.', 'ok');
+}
+
+async function confirmBulkVenta() {
+  const checks = [...document.querySelectorAll('.bulk-venta-row-check:checked')].map(c => c.dataset.sku);
+  const toApply = bulkVentaPendingChanges.filter(m => checks.includes(m.product.sku));
+
+  if (toApply.length === 0) {
+    setMsg('No hay filas marcadas para actualizar.', 'error');
+    return;
+  }
+  const proveedor = $('bulkVentaProveedor').value;
+  const markup = parseFloat($('bulkVentaMarkup').value);
+  if (!confirm(`Se va a actualizar el precio de venta de ${toApply.length} producto(s) de "${proveedor}" aplicando ${markup}% de markup sobre el costo. ¿Confirmar?`)) return;
+
+  const motivo = `Actualización masiva de venta — ${proveedor} (markup ${markup}%)`;
+  const today = new Date().toISOString().slice(0, 10);
+  const updateData = [];
+  const historialRows = [];
+
+  toApply.forEach(({ product, newVenta }) => {
+    updateData.push({ range: `Productos!G${product.row}`, values: [[newVenta]] });
+    updateData.push({ range: `Productos!L${product.row}`, values: [[today]] });
+    const variacion = product.venta > 0 ? ((newVenta - product.venta) / product.venta) : 0;
+    historialRows.push([today, product.sku, product.nombre, product.costo, product.costo, product.venta, newVenta, variacion, motivo]);
+    product._pendingVenta = newVenta;
+  });
+
+  setMsg(`Actualizando ${toApply.length} producto(s)...`, '');
+  try {
+    await sheetsBatchUpdate(updateData);
+    await sheetsAppend('Historial_Precios!A:I', historialRows);
+    toApply.forEach(({ product }) => {
+      product.venta = product._pendingVenta;
+      product.actualizado = today;
+      delete product._pendingVenta;
+    });
+    renderTable();
+    setMsg(`Se actualizó el precio de venta de ${toApply.length} producto(s) de "${proveedor}".`, 'ok');
+    cancelBulkVenta();
+  } catch (e) {
+    setMsg('Error en la actualización masiva: ' + e.message, 'error');
+  }
+}
+
+function cancelBulkVenta() {
+  bulkVentaPendingChanges = [];
+  $('bulkVentaMarkup').value = '';
+  $('bulkVentaPreviewWrap').classList.add('hidden');
+  $('bulkVentaConfirmRow').style.display = 'none';
+  $('bulkVentaSummary').innerHTML = '';
 }
 
 // ---------- Actualización de precio de venta desde archivo ----------
@@ -955,6 +1113,9 @@ $('filterCategoria').addEventListener('change', renderTable);
 $('filterProveedor').addEventListener('change', renderTable);
 $('filterBloque').addEventListener('change', renderTable);
 $('filterBajo').addEventListener('change', renderTable);
+$('bulkVentaPreviewBtn').addEventListener('click', previewBulkVenta);
+$('bulkVentaConfirmBtn').addEventListener('click', confirmBulkVenta);
+$('bulkVentaCancelBtn').addEventListener('click', cancelBulkVenta);
 $('filePreviewBtn').addEventListener('click', previewFileUpdate);
 $('fileConfirmBtn').addEventListener('click', confirmFileUpdate);
 $('fileCancelBtn').addEventListener('click', cancelFileUpdate);
