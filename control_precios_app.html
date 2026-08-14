@@ -80,6 +80,7 @@
   th { background: var(--rojo-marca); color: #fff; position: sticky; top: 0; }
   tbody tr:nth-child(even) { background: #FAFBFC; }
   tr.low-stock { background: #FDEDEC !important; }
+  tr.scan-match { outline: 3px solid var(--amarillo-marca); outline-offset: -3px; }
   td input { width: 90px; }
   .badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: bold; }
   .badge-ok { background: #D5F5E3; color: var(--verde); }
@@ -428,6 +429,7 @@ async function onConnected() {
   try {
     await loadAll();
     setMsg('Datos cargados correctamente.', 'ok');
+    $('searchInput').focus();
   } catch (e) {
     setMsg('No se pudieron cargar los datos: ' + e.message, 'error');
     console.error('Error cargando datos:', e);
@@ -501,10 +503,12 @@ async function describeError(res) {
 
 // ---------- Data loading ----------
 async function loadAll() {
+  // Rangos sin límite de fila final: Sheets API trae todo lo que haya cargado en la
+  // hoja, sin importar cuántas filas sean (antes quedaba cortado en la fila 1000).
   const [prodRows, catRows, provRows] = await Promise.all([
-    sheetsGet('Productos!A2:P1000'),
-    sheetsGet('Categorias!A2:B50'),
-    sheetsGet('Proveedores!A2:F50')
+    sheetsGet('Productos!A2:P'),
+    sheetsGet('Categorias!A2:B'),
+    sheetsGet('Proveedores!A2:F')
   ]);
 
   categorias = catRows.filter(r => r[0]).map(r => r[0]);
@@ -642,6 +646,16 @@ function renderTable() {
   tbody.querySelectorAll('button[data-save-row]').forEach(btn => {
     btn.addEventListener('click', () => saveRow(parseInt(btn.dataset.saveRow, 10)));
   });
+
+  // Si la búsqueda (por ejemplo, un escaneo con pistola láser) encuentra un solo
+  // producto, lo resaltamos y lo llevamos a la vista para confirmación visual.
+  if (search && filtered.length === 1) {
+    const row = tbody.querySelector('tr');
+    if (row) {
+      row.classList.add('scan-match');
+      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }
 }
 
 function escapeHtml(s) {
@@ -1173,6 +1187,7 @@ $('reloadBtn').addEventListener('click', async () => {
   try {
     await loadAll();
     setMsg('Datos recargados.', 'ok');
+    $('searchInput').focus();
   } catch (e) {
     setMsg('No se pudieron recargar los datos: ' + e.message, 'error');
     console.error('Error recargando datos:', e);
@@ -1180,6 +1195,15 @@ $('reloadBtn').addEventListener('click', async () => {
 });
 $('exportExcelBtn').addEventListener('click', exportToExcel);
 $('searchInput').addEventListener('input', renderTable);
+// Soporte para pistola lectora de código de barras (funciona como un teclado: escribe
+// el código y al final envía "Enter"). Al presionar Enter, seleccionamos todo el texto
+// para que el próximo escaneo sobreescriba el anterior en vez de concatenarse.
+$('searchInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    e.target.select();
+  }
+});
 $('filterCategoria').addEventListener('change', renderTable);
 $('filterProveedor').addEventListener('change', renderTable);
 $('filterBloque').addEventListener('change', renderTable);
