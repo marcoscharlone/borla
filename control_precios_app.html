@@ -191,7 +191,6 @@
           <button id="exportExcelBtn" class="secondary">Exportar a Excel</button>
         </div>
       </div>
-      <small class="help">Exporta los productos visibles según los filtros de arriba, con las columnas CODIGO / DESCRIPCION / COSTO / VENTA.</small>
     </div>
 
     <div class="card">
@@ -209,7 +208,6 @@
           <button id="bulkVentaPreviewBtn">Previsualizar cambios</button>
         </div>
       </div>
-      <small class="help">Calcula el nuevo precio de venta como Costo × (1 + markup%) para cada producto del proveedor elegido. Los productos sin costo cargado no se pueden actualizar por este método.</small>
       <div id="bulkVentaSummary" style="margin-top:10px; font-size:13px;"></div>
       <div class="table-wrap hidden" id="bulkVentaPreviewWrap" style="max-height:360px; margin-top:10px;">
         <table>
@@ -328,7 +326,7 @@
       </div>
       <div class="footer-stats">
         <div>Productos: <b id="statTotal">0</b></div>
-        <div>Stock bajo: <b id="statBajo">0</b></div>
+        <div>Markup bajo: <b id="statBajo">0</b></div>
         <div>Markup promedio: <b id="statMargen">0%</b></div>
       </div>
     </div>
@@ -359,13 +357,21 @@ function setStatus(text) {
 }
 
 // ---------- Persist config in this browser ----------
+// Valores por defecto: quedan escritos en el archivo, así que cualquiera que abra el
+// link comparte la misma conexión sin tener que cargar nada. El Client ID de Google
+// no es secreto (la seguridad la da la lista de orígenes autorizados en Google Cloud),
+// y el ID de hoja tampoco otorga acceso por sí solo (sigue haciendo falta iniciar
+// sesión con una cuenta de Google autorizada en la hoja).
+const DEFAULT_CLIENT_ID = '42156128387-eflnnh2runjl0saten43i8l46b9teiv4.apps.googleusercontent.com';
+const DEFAULT_SHEET_ID = '1VLBUqDVjpNtSUDzYflbeU_Qm5hAijPAHFC5VD1F_G8o';
+
 function loadSavedConfig() {
-  const cid = localStorage.getItem('cp_client_id');
-  const sid = localStorage.getItem('cp_sheet_id');
-  if (cid) $('clientId').value = cid;
-  if (sid) $('sheetId').value = sid;
-  // Si todavía no hay datos guardados, mostrar la configuración directamente.
-  if (!cid || !sid) $('configFields').classList.remove('hidden');
+  const cid = localStorage.getItem('cp_client_id') || DEFAULT_CLIENT_ID;
+  const sid = localStorage.getItem('cp_sheet_id') || DEFAULT_SHEET_ID;
+  if (cid && !cid.startsWith('PEGAR_ACA')) $('clientId').value = cid;
+  if (sid && !sid.startsWith('PEGAR_ACA')) $('sheetId').value = sid;
+  // Si no hay datos guardados ni valores por defecto cargados en el código, mostrar la configuración directamente.
+  if (!$('clientId').value || !$('sheetId').value) $('configFields').classList.remove('hidden');
 }
 function toggleConfigFields() {
   $('configFields').classList.toggle('hidden');
@@ -588,9 +594,10 @@ function renderTable() {
 
   const tbody = $('productsBody');
   tbody.innerHTML = '';
-  let sumMargen = 0, countMargen = 0, bajoCount = 0;
+  let sumMargen = 0, countMargen = 0, markupBajoCount = 0;
 
-  products.forEach(p => { if (p.estado === 'Bajo') bajoCount++; });
+  const categoriaOptions = categorias.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  const proveedorOptions = proveedores.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
 
   filtered.forEach(p => {
     const tr = document.createElement('tr');
@@ -603,15 +610,19 @@ function renderTable() {
     let markupClass = '';
     if (umbral !== undefined && !isNaN(umbral)) {
       markupClass = margenPct >= umbral ? 'markup-ok' : 'markup-low';
+      if (markupClass === 'markup-low') markupBajoCount++;
     }
+
+    const catSel = `<option value="">(sin categoría)</option>` + categoriaOptions;
+    const provSel = `<option value="">(sin proveedor)</option>` + proveedorOptions;
 
     tr.innerHTML = `
       <td>${escapeHtml(p.sku)}</td>
       <td><input type="text" value="${escapeHtml(p.ean)}" data-field="ean" data-row="${p.row}" style="width:130px"></td>
       <td><input type="text" value="${escapeHtml(p.codigoProveedor)}" data-field="codigoProveedor" data-row="${p.row}" style="width:110px"></td>
       <td>${escapeHtml(p.nombre)}</td>
-      <td>${escapeHtml(p.categoria)}</td>
-      <td>${escapeHtml(p.proveedor)}</td>
+      <td><select data-field="categoria" data-row="${p.row}">${catSel}</select></td>
+      <td><select data-field="proveedor" data-row="${p.row}">${provSel}</select></td>
       <td><input type="text" value="${escapeHtml(p.bloque)}" data-field="bloque" data-row="${p.row}" style="width:80px"></td>
       <td><input type="number" step="0.01" value="${p.costo}" data-field="costo" data-row="${p.row}"></td>
       <td><input type="number" step="0.01" value="${p.venta}" data-field="venta" data-row="${p.row}"></td>
@@ -620,10 +631,12 @@ function renderTable() {
       <td><button class="save-btn" data-save-row="${p.row}">Guardar</button></td>
     `;
     tbody.appendChild(tr);
+    tr.querySelector('select[data-field="categoria"]').value = p.categoria;
+    tr.querySelector('select[data-field="proveedor"]').value = p.proveedor;
   });
 
   $('statTotal').textContent = products.length;
-  $('statBajo').textContent = bajoCount;
+  $('statBajo').textContent = markupBajoCount;
   $('statMargen').textContent = (countMargen ? (sumMargen / countMargen).toFixed(1) : 0) + '%';
 
   tbody.querySelectorAll('button[data-save-row]').forEach(btn => {
@@ -674,24 +687,30 @@ function exportToExcel() {
 async function saveRow(rowNum) {
   const product = products.find(p => p.row === rowNum);
   if (!product) return;
-  const tr = [...document.querySelectorAll(`input[data-row="${rowNum}"]`)];
+  const tr = [...document.querySelectorAll(`[data-row="${rowNum}"]`)];
   const costoInput = tr.find(i => i.dataset.field === 'costo');
   const ventaInput = tr.find(i => i.dataset.field === 'venta');
   const eanInput = tr.find(i => i.dataset.field === 'ean');
   const codProvInput = tr.find(i => i.dataset.field === 'codigoProveedor');
   const bloqueInput = tr.find(i => i.dataset.field === 'bloque');
+  const categoriaSelect = tr.find(i => i.dataset.field === 'categoria');
+  const proveedorSelect = tr.find(i => i.dataset.field === 'proveedor');
   const newCosto = parseFloat(costoInput.value) || 0;
   const newVenta = parseFloat(ventaInput.value) || 0;
   const newEan = eanInput.value.trim();
   const newCodProv = codProvInput.value.trim();
   const newBloque = bloqueInput.value.trim();
+  const newCategoria = categoriaSelect.value;
+  const newProveedor = proveedorSelect.value;
 
   const priceChanged = newCosto !== product.costo || newVenta !== product.venta;
   const eanChanged = newEan !== product.ean;
   const codProvChanged = newCodProv !== product.codigoProveedor;
   const bloqueChanged = newBloque !== product.bloque;
+  const categoriaChanged = newCategoria !== product.categoria;
+  const proveedorChanged = newProveedor !== product.proveedor;
 
-  if (!priceChanged && !eanChanged && !codProvChanged && !bloqueChanged) {
+  if (!priceChanged && !eanChanged && !codProvChanged && !bloqueChanged && !categoriaChanged && !proveedorChanged) {
     setMsg('No hubo cambios para ' + product.sku + '.', '');
     return;
   }
@@ -718,6 +737,14 @@ async function saveRow(rowNum) {
     if (bloqueChanged) {
       await sheetsUpdate(`Productos!P${rowNum}`, [[newBloque]]);
       product.bloque = newBloque;
+    }
+    if (categoriaChanged) {
+      await sheetsUpdate(`Productos!C${rowNum}`, [[newCategoria]]);
+      product.categoria = newCategoria;
+    }
+    if (proveedorChanged) {
+      await sheetsUpdate(`Productos!D${rowNum}`, [[newProveedor]]);
+      product.proveedor = newProveedor;
     }
     renderTable();
     setMsg((priceChanged ? 'Precio' : 'Datos') + ' de ' + product.sku + ' actualizado.', 'ok');
