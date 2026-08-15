@@ -214,6 +214,9 @@
         <div>
           <button id="exportExcelBtn" class="secondary">Exportar a Excel</button>
         </div>
+        <div>
+          <button id="addProductBtn" type="button">+ Agregar producto</button>
+        </div>
       </div>
     </div>
 
@@ -370,6 +373,61 @@
       <div id="cameraScanMsg"></div>
       <div class="row" style="margin-top:12px;">
         <button id="cameraCloseBtn" class="secondary" type="button">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="addProductModal" class="modal-overlay hidden">
+    <div class="modal-box" style="max-width:540px;">
+      <h3>Agregar producto</h3>
+      <div class="row">
+        <div>
+          <label>SKU</label>
+          <input id="newSku" type="text" style="width:140px">
+        </div>
+        <div>
+          <label>Nombre</label>
+          <input id="newNombre" type="text" style="width:230px">
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <div>
+          <label>Pasillo/Sector</label>
+          <select id="newCategoria"><option value="">(sin categoría)</option></select>
+        </div>
+        <div>
+          <label>Proveedor</label>
+          <select id="newProveedor"><option value="">(sin proveedor)</option></select>
+        </div>
+        <div>
+          <label>Bloque</label>
+          <input id="newBloque" type="text" style="width:80px">
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <div>
+          <label>EAN</label>
+          <input id="newEan" type="text" style="width:140px">
+        </div>
+        <div>
+          <label>Cód. Proveedor</label>
+          <input id="newCodProv" type="text" style="width:120px">
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <div>
+          <label>Costo</label>
+          <input id="newCosto" type="number" step="0.01" style="width:100px">
+        </div>
+        <div>
+          <label>Venta</label>
+          <input id="newVenta" type="number" step="0.01" style="width:100px">
+        </div>
+      </div>
+      <div id="addProductMsg" style="font-size:13px; margin-top:10px; min-height:16px;"></div>
+      <div class="row" style="margin-top:12px;">
+        <button id="addProductConfirmBtn" class="save-btn" type="button">Agregar</button>
+        <button id="addProductCancelBtn" class="secondary" type="button">Cancelar</button>
       </div>
     </div>
   </div>
@@ -670,7 +728,7 @@ function renderTable() {
       <td><input type="text" value="${escapeHtml(p.bloque)}" data-field="bloque" data-row="${p.row}" style="width:80px"></td>
       <td><input type="number" step="0.01" value="${p.costo}" data-field="costo" data-row="${p.row}"></td>
       <td><input type="number" step="0.01" value="${p.venta}" data-field="venta" data-row="${p.row}"></td>
-      <td class="${markupClass}">${margenPct.toFixed(1)}%</td>
+      <td><input type="number" step="0.1" value="${margenPct.toFixed(1)}" data-field="markup" data-row="${p.row}" class="${markupClass}" style="width:70px"> %</td>
       <td>${escapeHtml(p.actualizado)}</td>
       <td><button class="save-btn" data-save-row="${p.row}">Guardar</button></td>
     `;
@@ -871,6 +929,73 @@ async function appendHistorial(product, newCosto, newVenta, motivo) {
     product.venta, newVenta,
     variacion, motivo
   ]]);
+}
+
+// ---------- Agregar producto nuevo ----------
+function openAddProductModal() {
+  $('addProductMsg').textContent = '';
+  $('newSku').value = '';
+  $('newNombre').value = '';
+  $('newBloque').value = '';
+  $('newEan').value = '';
+  $('newCodProv').value = '';
+  $('newCosto').value = '';
+  $('newVenta').value = '';
+
+  const catOptions = `<option value="">(sin categoría)</option>` + categorias.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  const provOptions = `<option value="">(sin proveedor)</option>` + proveedores.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+  $('newCategoria').innerHTML = catOptions;
+  $('newProveedor').innerHTML = provOptions;
+
+  $('addProductModal').classList.remove('hidden');
+  $('newSku').focus();
+}
+
+function closeAddProductModal() {
+  $('addProductModal').classList.add('hidden');
+}
+
+async function confirmAddProduct() {
+  const sku = $('newSku').value.trim();
+  const nombre = $('newNombre').value.trim();
+  const categoria = $('newCategoria').value;
+  const proveedor = $('newProveedor').value;
+  const bloque = $('newBloque').value.trim();
+  const ean = $('newEan').value.trim();
+  const codProv = $('newCodProv').value.trim();
+  const costo = parseFloat($('newCosto').value) || 0;
+  const venta = parseFloat($('newVenta').value) || 0;
+
+  const msgEl = $('addProductMsg');
+  msgEl.style.color = 'var(--rojo-error)';
+
+  if (!sku) { msgEl.textContent = 'El SKU es obligatorio.'; return; }
+  if (!nombre) { msgEl.textContent = 'El nombre es obligatorio.'; return; }
+  if (products.some(p => p.sku.toLowerCase() === sku.toLowerCase())) {
+    msgEl.textContent = 'Ya existe un producto con ese SKU.';
+    return;
+  }
+
+  msgEl.style.color = '#444';
+  msgEl.textContent = 'Agregando...';
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    // Orden de columnas Productos!A:P — E, H, I, J, K y O quedan vacías (no las usa la app).
+    await sheetsAppend('Productos!A:P', [[
+      sku, nombre, categoria, proveedor, '',
+      costo, venta, '', '', '', '',
+      today, ean, codProv, '', bloque
+    ]]);
+    closeAddProductModal();
+    setMsg('Cargando catálogo...', '');
+    await loadAll();
+    $('searchInput').value = sku;
+    renderTable();
+    setMsg('Producto ' + sku + ' agregado correctamente.', 'ok');
+  } catch (e) {
+    msgEl.style.color = 'var(--rojo-error)';
+    msgEl.textContent = 'Error al agregar: ' + e.message;
+  }
 }
 
 // ---------- Actualización masiva de precio de venta por proveedor ----------
@@ -1301,6 +1426,44 @@ $('searchInput').addEventListener('keydown', (e) => {
 });
 $('scanCameraBtn').addEventListener('click', openCameraScanner);
 $('cameraCloseBtn').addEventListener('click', closeCameraScanner);
+$('addProductBtn').addEventListener('click', openAddProductModal);
+$('addProductCancelBtn').addEventListener('click', closeAddProductModal);
+$('addProductConfirmBtn').addEventListener('click', confirmAddProduct);
+
+// Enlace en vivo Costo/Venta/Markup dentro de la tabla: editar el Markup recalcula la
+// Venta (Costo × (1 + markup%)); editar el Costo o la Venta recalcula el Markup mostrado
+// (y su color verde/rojo). Nada de esto se guarda hasta hacer clic en "Guardar" — ahí
+// saveRow() toma el valor final del campo Venta, que es lo único que se escribe en la hoja.
+$('productsBody').addEventListener('input', (e) => {
+  const field = e.target.dataset.field;
+  if (field !== 'costo' && field !== 'venta' && field !== 'markup') return;
+  const tr = e.target.closest('tr');
+  const costoInput = tr.querySelector('[data-field="costo"]');
+  const ventaInput = tr.querySelector('[data-field="venta"]');
+  const markupInput = tr.querySelector('[data-field="markup"]');
+  const costo = parseFloat(costoInput.value) || 0;
+
+  if (field === 'markup') {
+    const markup = parseFloat(markupInput.value);
+    if (!isNaN(markup) && costo > 0) {
+      ventaInput.value = Math.round(costo * (1 + markup / 100));
+    }
+  } else {
+    const venta = parseFloat(ventaInput.value) || 0;
+    const markup = costo > 0 ? ((venta - costo) / costo * 100) : 0;
+    markupInput.value = markup.toFixed(1);
+  }
+
+  const product = products.find(p => p.row === parseInt(e.target.dataset.row, 10));
+  markupInput.classList.remove('markup-ok', 'markup-low');
+  if (product) {
+    const umbral = proveedorMarkup[product.proveedor];
+    if (umbral !== undefined && !isNaN(umbral)) {
+      const mk = parseFloat(markupInput.value) || 0;
+      markupInput.classList.add(mk >= umbral ? 'markup-ok' : 'markup-low');
+    }
+  }
+});
 
 // ---------- Pestañas ----------
 document.querySelectorAll('.tab-btn').forEach(btn => {
