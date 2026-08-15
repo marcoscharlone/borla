@@ -89,6 +89,13 @@ A: Proveedor · B: Contacto · C: Teléfono · D: Email · E: Categorías que pr
 
 La columna F es nueva: agregá el encabezado "Markup promedio" y cargá, para cada proveedor, el markup esperado como número simple (por ejemplo `35` para 35% — no hace falta escribir el símbolo `%` ni usar formato de porcentaje en la celda). En el catálogo, la celda de Markup de cada producto se pinta de **verde** si su markup es igual o mayor al de su proveedor, y de **rojo** si es menor. Los proveedores sin markup cargado en esa columna no colorean la celda.
 
+## Pestañas
+
+Una vez conectado, el contenido se organiza en dos pestañas (arriba, debajo del cuadro de conexión):
+
+- **📦 Catálogo:** los filtros/búsqueda y la tabla completa de productos — lo que se usa el día a día.
+- **🔄 Actualizaciones masivas:** los cuatro cuadros para actualizar precios por proveedor, por archivo de venta, y de costo (Borla Hnos / VCC 365) — herramientas de uso ocasional, ahora fuera del camino del catálogo.
+
 ## Uso diario
 
 - **Editar un precio:** cambiá el valor de Costo o Venta en la fila del producto y hacé clic en **Guardar**. El markup y la fecha se actualizan solos, y queda un registro en la hoja Historial_Precios.
