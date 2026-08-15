@@ -760,6 +760,13 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+// Redondea hacia arriba a la decena más cercana (termina en 0). Se usa siempre que el
+// precio de venta se calcula a partir de un markup (edición manual en la tabla o
+// actualización masiva por proveedor), nunca cuando se escribe la venta directamente.
+function roundUpToTen(n) {
+  return Math.ceil(n / 10) * 10;
+}
+
 // ---------- Escanear código EAN con la cámara del dispositivo ----------
 let html5QrCode = null;
 let cameraScanning = false;
@@ -1018,7 +1025,7 @@ async function previewBulkVenta() {
   const conCosto = productosProveedor.filter(p => p.costo > 0);
 
   const matched = conCosto.map(p => {
-    const newVenta = Math.round(p.costo * (1 + markup / 100));
+    const newVenta = roundUpToTen(p.costo * (1 + markup / 100));
     const markupActual = p.costo > 0 ? ((p.venta - p.costo) / p.costo * 100) : 0;
     return { product: p, newVenta, markupActual, changed: newVenta !== p.venta };
   });
@@ -1446,7 +1453,7 @@ $('productsBody').addEventListener('input', (e) => {
   if (field === 'markup') {
     const markup = parseFloat(markupInput.value);
     if (!isNaN(markup) && costo > 0) {
-      ventaInput.value = Math.round(costo * (1 + markup / 100));
+      ventaInput.value = roundUpToTen(costo * (1 + markup / 100));
     }
   } else {
     const venta = parseFloat(ventaInput.value) || 0;
