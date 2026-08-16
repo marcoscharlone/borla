@@ -91,10 +91,19 @@ La columna F es nueva: agregá el encabezado "Markup promedio" y cargá, para ca
 
 ## Pestañas
 
-Una vez conectado, el contenido se organiza en dos pestañas (arriba, debajo del cuadro de conexión):
+Una vez conectado, el contenido se organiza en tres pestañas (arriba, debajo del cuadro de conexión):
 
 - **📦 Catálogo:** los filtros/búsqueda y la tabla completa de productos — lo que se usa el día a día.
 - **🔄 Actualizaciones masivas:** los cuatro cuadros para actualizar precios por proveedor, por archivo de venta, y de costo (Borla Hnos / VCC 365) — herramientas de uso ocasional, ahora fuera del camino del catálogo.
+- **🏷️ Etiquetas:** generar el PDF de etiquetas de precio para góndola (ver sección siguiente).
+
+## Etiquetas de precio para góndola
+
+En la pestaña **🏷️ Etiquetas** podés generar un PDF con las etiquetas de precio listas para imprimir y cortar:
+
+1. Filtrá por **Proveedor** y/o por fecha de **modificación de precio** (desde/hasta) — dejá los campos vacíos para no filtrar por eso. La fecha es la misma columna "Actualizado" que se ve en el catálogo.
+2. Hacé clic en **Buscar productos**: aparece una lista con casillero por producto, todos tildados por defecto — destildá los que no quieras imprimir (o usá el casillero del encabezado para tildar/destildar todos de una).
+3. Hacé clic en **Generar PDF de etiquetas**. Se descarga un PDF tamaño A4 con las etiquetas ubicadas de a 3 por fila (nombre en negrita, SKU centrado, precio de venta grande con el "$" a la izquierda), llenando cada hoja y pasando a la siguiente hasta completar todos los productos elegidos, siguiendo el modelo que nos pasaste. Imprimilo y cortá las etiquetas por las líneas.
 
 ## Uso diario
 

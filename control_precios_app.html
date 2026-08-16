@@ -7,6 +7,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.2.1/jspdf.umd.min.js"></script>
 <style>
   :root {
     --rojo-marca: #E3010F;
@@ -198,6 +199,7 @@
     <div class="tabs">
       <button type="button" class="tab-btn active" data-target="tabCatalogo">📦 Catálogo</button>
       <button type="button" class="tab-btn" data-target="tabActualizaciones">🔄 Actualizaciones masivas</button>
+      <button type="button" class="tab-btn" data-target="tabEtiquetas">🏷️ Etiquetas</button>
     </div>
 
     <div id="tabCatalogo" class="tab-content">
@@ -379,6 +381,43 @@
       <div class="row" id="vccFileConfirmRow" style="margin-top:10px; display:none;">
         <button id="vccFileConfirmBtn" class="save-btn">Confirmar actualización</button>
         <button id="vccFileCancelBtn" class="secondary">Cancelar</button>
+      </div>
+    </div>
+
+    </div>
+
+    <div id="tabEtiquetas" class="tab-content hidden">
+
+    <div class="card">
+      <h2>Etiquetas de precio para góndola</h2>
+      <div class="row">
+        <div>
+          <label>Proveedor</label>
+          <select id="etiquetasProveedor"><option value="">Todos</option></select>
+        </div>
+        <div>
+          <label>Modificado desde</label>
+          <input id="etiquetasDesde" type="date">
+        </div>
+        <div>
+          <label>Modificado hasta</label>
+          <input id="etiquetasHasta" type="date">
+        </div>
+        <div>
+          <button id="etiquetasBuscarBtn" type="button">Buscar productos</button>
+        </div>
+      </div>
+      <div id="etiquetasSummary" style="margin-top:10px; font-size:13px;"></div>
+      <div class="table-wrap hidden" id="etiquetasPreviewWrap" style="max-height:400px; margin-top:10px;">
+        <table>
+          <thead>
+            <tr><th><input type="checkbox" id="etiquetasSelectAll" checked></th><th>SKU</th><th>Nombre</th><th>Proveedor</th><th>Venta</th><th>Actualizado</th></tr>
+          </thead>
+          <tbody id="etiquetasPreviewBody"></tbody>
+        </table>
+      </div>
+      <div class="row" id="etiquetasGenerarRow" style="margin-top:10px; display:none;">
+        <button id="etiquetasGenerarBtn" class="save-btn" type="button">Generar PDF de etiquetas</button>
       </div>
     </div>
 
@@ -673,11 +712,10 @@ async function loadAll() {
 }
 
 function populateFilterOptions() {
-  const fillSelect = (sel, items) => {
+  const fillSelect = (sel, items, placeholder) => {
     const current = sel.value;
-    sel.innerHTML = sel.id.startsWith('filter')
-      ? '<option value="">Todos</option>'
-      : '<option value="">Seleccionar...</option>';
+    const ph = placeholder !== undefined ? placeholder : (sel.id.startsWith('filter') ? 'Todos' : 'Seleccionar...');
+    sel.innerHTML = `<option value="">${ph}</option>`;
     items.forEach(v => {
       const opt = document.createElement('option');
       opt.value = v; opt.textContent = v;
@@ -691,6 +729,7 @@ function populateFilterOptions() {
   fillSelect($('filterProveedor'), proveedores);
   fillSelect($('filterBloque'), bloques);
   fillSelect($('bulkVentaProveedor'), proveedores);
+  fillSelect($('etiquetasProveedor'), proveedores, 'Todos');
 }
 
 // ---------- Rendering ----------
@@ -785,6 +824,107 @@ function escapeHtml(s) {
 // actualización masiva por proveedor), nunca cuando se escribe la venta directamente.
 function roundUpToTen(n) {
   return Math.ceil(n / 10) * 10;
+}
+
+function formatPrecio(v) {
+  return (v || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// ---------- Etiquetas de precio para góndola ----------
+let etiquetasFilteredProducts = [];
+
+function buscarEtiquetasProductos() {
+  if (!products.length) { setMsg('Conectá y cargá el catálogo antes.', 'error'); return; }
+
+  const proveedor = $('etiquetasProveedor').value;
+  const desde = $('etiquetasDesde').value;
+  const hasta = $('etiquetasHasta').value;
+
+  etiquetasFilteredProducts = products.filter(p => {
+    if (proveedor && p.proveedor !== proveedor) return false;
+    if (desde && (!p.actualizado || p.actualizado < desde)) return false;
+    if (hasta && (!p.actualizado || p.actualizado > hasta)) return false;
+    return true;
+  });
+
+  const tbody = $('etiquetasPreviewBody');
+  tbody.innerHTML = '';
+  etiquetasFilteredProducts.forEach(p => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="checkbox" class="etiqueta-row-check" data-sku="${escapeHtml(p.sku)}" checked></td>
+      <td>${escapeHtml(p.sku)}</td>
+      <td>${escapeHtml(p.nombre)}</td>
+      <td>${escapeHtml(p.proveedor)}</td>
+      <td>${formatPrecio(p.venta)}</td>
+      <td>${escapeHtml(p.actualizado)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  $('etiquetasSelectAll').checked = true;
+  $('etiquetasSummary').textContent = etiquetasFilteredProducts.length
+    ? etiquetasFilteredProducts.length + ' producto(s) encontrados. Destildá los que no quieras imprimir.'
+    : 'No se encontraron productos con esos filtros.';
+  $('etiquetasPreviewWrap').classList.toggle('hidden', etiquetasFilteredProducts.length === 0);
+  $('etiquetasGenerarRow').style.display = etiquetasFilteredProducts.length ? 'flex' : 'none';
+}
+
+function generarEtiquetasPdf() {
+  const checks = [...document.querySelectorAll('.etiqueta-row-check:checked')];
+  if (!checks.length) { setMsg('Elegí al menos un producto para generar etiquetas.', 'error'); return; }
+
+  if (typeof window.jspdf === 'undefined') {
+    setMsg('No se pudo cargar la librería de PDF. Revisá tu conexión a internet.', 'error');
+    return;
+  }
+
+  const skus = new Set(checks.map(c => c.dataset.sku));
+  const seleccionados = etiquetasFilteredProducts.filter(p => skus.has(p.sku));
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+
+  // Grilla de 3 etiquetas por fila, llenando la hoja A4 y pasando a la siguiente cuando
+  // se completa. Cada etiqueta: nombre en negrita (hasta 2 líneas), SKU centrado abajo,
+  // y el precio de venta grande en negrita con el "$" a la izquierda — según el modelo.
+  const pageWidth = 210, pageHeight = 297, margin = 8;
+  const cols = 3;
+  const labelW = (pageWidth - margin * 2) / cols;
+  const labelH = 35;
+  const rowsPerPage = Math.floor((pageHeight - margin * 2) / labelH);
+  const perPage = cols * rowsPerPage;
+  const pad = 3;
+
+  seleccionados.forEach((p, i) => {
+    const posInPage = i % perPage;
+    if (i > 0 && posInPage === 0) doc.addPage();
+    const col = posInPage % cols;
+    const row = Math.floor(posInPage / cols);
+    const x = margin + col * labelW;
+    const y = margin + row * labelH;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    const nameLines = doc.splitTextToSize(String(p.nombre).toUpperCase(), labelW - pad * 2).slice(0, 2);
+    doc.text(nameLines, x + pad, y + 5);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text(String(p.sku), x + labelW / 2, y + 17, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.text('$', x + pad, y + 27);
+    doc.text(formatPrecio(p.venta), x + labelW - pad, y + 27, { align: 'right' });
+
+    doc.setDrawColor(120);
+    doc.setLineWidth(0.3);
+    doc.line(x + pad, y + labelH - 3, x + labelW - pad, y + labelH - 3);
+  });
+
+  doc.save('etiquetas_precios.pdf');
+  setMsg(seleccionados.length + ' etiqueta(s) generadas en el PDF.', 'ok');
 }
 
 // ---------- Escanear código EAN con la cámara del dispositivo ----------
@@ -1500,6 +1640,11 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.classList.add('active');
     $(btn.dataset.target).classList.remove('hidden');
   });
+});
+$('etiquetasBuscarBtn').addEventListener('click', buscarEtiquetasProductos);
+$('etiquetasGenerarBtn').addEventListener('click', generarEtiquetasPdf);
+$('etiquetasSelectAll').addEventListener('change', (e) => {
+  document.querySelectorAll('.etiqueta-row-check').forEach(c => c.checked = e.target.checked);
 });
 $('filterCategoria').addEventListener('change', renderTable);
 $('filterProveedor').addEventListener('change', renderTable);
