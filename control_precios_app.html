@@ -83,6 +83,25 @@
   tr.low-stock { background: #FDEDEC !important; }
   tr.scan-match { outline: 3px solid var(--amarillo-marca); outline-offset: -3px; }
   td input { width: 90px; }
+  /* Tabla del catálogo: ancho fijo por columna + fuente más chica, para que los textos
+     largos (nombre, pasillo/sector, proveedor) envuelvan en 2 líneas en vez de forzar
+     scroll horizontal. Escapada a .catalog-table para no afectar otras tablas (las de
+     previsualización de actualizaciones masivas). */
+  .catalog-table { table-layout: fixed; font-size: 12px; }
+  .catalog-table th, .catalog-table td { padding: 5px 6px; overflow-wrap: break-word; }
+  .catalog-table td input, .catalog-table td select { width: 100%; box-sizing: border-box; font-size: 12px; padding: 4px 5px; }
+  .catalog-table th:nth-child(1), .catalog-table td:nth-child(1) { width: 8%; }   /* SKU */
+  .catalog-table th:nth-child(2), .catalog-table td:nth-child(2) { width: 8%; }   /* EAN */
+  .catalog-table th:nth-child(3), .catalog-table td:nth-child(3) { width: 8%; }   /* Cód. Proveedor */
+  .catalog-table th:nth-child(4), .catalog-table td:nth-child(4) { width: 18%; }  /* Nombre */
+  .catalog-table th:nth-child(5), .catalog-table td:nth-child(5) { width: 9%; }   /* Pasillo/Sector */
+  .catalog-table th:nth-child(6), .catalog-table td:nth-child(6) { width: 9%; }   /* Proveedor */
+  .catalog-table th:nth-child(7), .catalog-table td:nth-child(7) { width: 6%; }   /* Bloque */
+  .catalog-table th:nth-child(8), .catalog-table td:nth-child(8) { width: 7%; }   /* Costo */
+  .catalog-table th:nth-child(9), .catalog-table td:nth-child(9) { width: 7%; }   /* Venta */
+  .catalog-table th:nth-child(10), .catalog-table td:nth-child(10) { width: 7%; } /* Markup */
+  .catalog-table th:nth-child(11), .catalog-table td:nth-child(11) { width: 7%; } /* Actualizado */
+  .catalog-table th:nth-child(12), .catalog-table td:nth-child(12) { width: 6%; } /* Guardar */
   .badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: bold; }
   .badge-ok { background: #D5F5E3; color: var(--verde); }
   .badge-bajo { background: #FFF3CD; color: #8A6500; }
@@ -223,7 +242,7 @@
     <div class="card">
       <h2>Catálogo de productos</h2>
       <div class="table-wrap">
-        <table>
+        <table class="catalog-table">
           <thead>
             <tr>
               <th>SKU</th><th>EAN</th><th>Cód. Proveedor</th><th>Nombre</th><th>Pasillo/Sector</th><th>Proveedor</th><th>Bloque</th>
@@ -720,15 +739,15 @@ function renderTable() {
 
     tr.innerHTML = `
       <td>${escapeHtml(p.sku)}</td>
-      <td><input type="text" value="${escapeHtml(p.ean)}" data-field="ean" data-row="${p.row}" style="width:130px"></td>
-      <td><input type="text" value="${escapeHtml(p.codigoProveedor)}" data-field="codigoProveedor" data-row="${p.row}" style="width:110px"></td>
+      <td><input type="text" value="${escapeHtml(p.ean)}" data-field="ean" data-row="${p.row}"></td>
+      <td><input type="text" value="${escapeHtml(p.codigoProveedor)}" data-field="codigoProveedor" data-row="${p.row}"></td>
       <td>${escapeHtml(p.nombre)}</td>
       <td><select data-field="categoria" data-row="${p.row}">${catSel}</select></td>
       <td><select data-field="proveedor" data-row="${p.row}">${provSel}</select></td>
-      <td><input type="text" value="${escapeHtml(p.bloque)}" data-field="bloque" data-row="${p.row}" style="width:80px"></td>
+      <td><input type="text" value="${escapeHtml(p.bloque)}" data-field="bloque" data-row="${p.row}"></td>
       <td><input type="number" step="0.01" value="${p.costo}" data-field="costo" data-row="${p.row}"></td>
       <td><input type="number" step="0.01" value="${p.venta}" data-field="venta" data-row="${p.row}"></td>
-      <td><input type="number" step="0.1" value="${margenPct.toFixed(1)}" data-field="markup" data-row="${p.row}" class="${markupClass}" style="width:70px"> %</td>
+      <td><input type="number" step="0.1" value="${margenPct.toFixed(1)}" data-field="markup" data-row="${p.row}" class="${markupClass}"></td>
       <td>${escapeHtml(p.actualizado)}</td>
       <td><button class="save-btn" data-save-row="${p.row}">Guardar</button></td>
     `;
