@@ -121,7 +121,16 @@ En la pestaña **🏷️ Etiquetas** podés generar un PDF con las etiquetas de 
   - **"Actualizar costo — Borla Hnos"**: código en columna D, precio de costo en columna I.
   - **"Actualizar costo — VCC 365"**: código en columna E, precio de costo en columna S.
 
-  Cada botón cruza esa columna del archivo contra la columna N (Código Proveedor) de tu catálogo — no contra el SKU — y solo actualiza productos que ya tengan asignado ese proveedor exacto ("Borla Hnos" / "VCC 365") en la hoja Productos. Si necesitás agregar un proveedor nuevo con archivo propio más adelante, avisame y agrego un botón igual con sus columnas correspondientes. Si el proveedor no tiene productos cargados, o esos productos no tienen Código Proveedor completado, la previsualización va a mostrar 0 coincidencias.
+  Cada botón cruza esa columna del archivo contra la columna N (Código Proveedor) de tu catálogo — no contra el SKU — y solo actualiza productos que ya tengan asignado ese proveedor exacto ("Borla Hnos" / "VCC 365") en la hoja Productos. Si el proveedor no tiene productos cargados, o esos productos no tienen Código Proveedor completado, la previsualización va a mostrar 0 coincidencias.
+- **Actualizar costo desde factura (otros proveedores):** para cualquier proveedor que no sea Borla Hnos ni VCC 365 (esos dos ya tienen su botón dedicado arriba), usá el cuadro "Actualizar costo desde factura (otros proveedores)":
+  1. Elegí el **Proveedor** de la factura.
+  2. Sacá o subí una **foto de la factura** — queda mostrada en pantalla como referencia mientras cargás los datos a mano (no se lee el texto automáticamente: ninguna herramienta de reconocimiento de texto es confiable con fotos de facturas reales, así que preferimos que cargues los números vos, mirando la foto al lado).
+  3. Arriba de la tabla, marcá si el **precio de la factura incluye IVA** (si no lo incluye, completá el % de IVA para que se sume) y si el **precio es por unidad** o por bulto — estas dos condiciones aplican a toda la factura.
+  4. Cargá una fila por ítem: **Código Proveedor** (se cruza contra la columna N del catálogo, igual que Borla/VCC), la **Descripción** es solo para tu referencia visual y no se guarda, el **Precio** tal cual figura en la factura, la **Cantidad** del bulto (dejalo en 1 si el precio ya es por unidad), y el **% de descuento** de esa línea en particular — a diferencia del IVA y el precio unitario, el descuento sí se carga línea por línea, porque no siempre aplica igual a todos los ítems de una factura. La columna "Costo final" se recalcula sola con cada cambio.
+  5. Hacé clic en **"+ Agregar línea"** si necesitás más filas.
+  6. Hacé clic en **Previsualizar cambios**, revisá la tabla (podés destildar productos puntuales) y confirmá — igual que las demás actualizaciones masivas, queda registrado en el historial.
+
+  El costo final que se guarda en la hoja siempre queda con IVA incluido, para que sea comparable con el resto del catálogo (Markup se calcula igual para todos los productos, vengan de donde vengan).
 - **Historial:** cada cambio de precio (individual o por archivo) se guarda automáticamente en la hoja Historial_Precios, con fecha, precios antes/después y motivo.
 
 ## Agregar otro usuario de Gmail

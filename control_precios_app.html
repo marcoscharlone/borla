@@ -104,6 +104,11 @@
   .catalog-table th:nth-child(11), .catalog-table td:nth-child(11) { width: 7%; } /* Actualizado */
   .catalog-table th:nth-child(12), .catalog-table td:nth-child(12) { width: 4%; text-align: center; } /* Guardar */
   .catalog-table .save-btn { width: auto; padding: 4px 10px; font-size: 14px; line-height: 1; }
+  .factura-table { font-size: 12px; }
+  .factura-table td input { width: 100%; box-sizing: border-box; font-size: 12px; padding: 4px 5px; }
+  .factura-table .factura-costo-final { font-weight: bold; white-space: nowrap; }
+  .factura-table .factura-del-row { background: transparent; color: var(--rojo-error); padding: 2px 8px; font-size: 14px; }
+  .factura-table .factura-del-row:hover { background: #FADBD8; }
   .badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: bold; }
   .badge-ok { background: #D5F5E3; color: var(--verde); }
   .badge-bajo { background: #FFF3CD; color: #8A6500; }
@@ -381,6 +386,62 @@
       <div class="row" id="vccFileConfirmRow" style="margin-top:10px; display:none;">
         <button id="vccFileConfirmBtn" class="save-btn">Confirmar actualización</button>
         <button id="vccFileCancelBtn" class="secondary">Cancelar</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Actualizar costo desde factura (otros proveedores)</h2>
+      <div class="row">
+        <div>
+          <label>Proveedor</label>
+          <select id="facturaProveedor"><option value="">Seleccionar...</option></select>
+        </div>
+        <div>
+          <label>Foto de la factura</label>
+          <input id="facturaFotoInput" type="file" accept="image/*" capture="environment">
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <div>
+          <label><input type="checkbox" id="facturaIncluyeIva"> El precio de la factura incluye IVA</label>
+        </div>
+        <div>
+          <label>IVA (%)</label>
+          <input id="facturaIvaPct" type="number" step="0.1" value="21" style="width:80px">
+        </div>
+        <div>
+          <label><input type="checkbox" id="facturaEsUnitario" checked> El precio es por unidad</label>
+        </div>
+      </div>
+      <div id="facturaFotoPreviewWrap" class="hidden" style="margin-top:10px;">
+        <img id="facturaFotoPreview" alt="Foto de la factura" style="max-width:100%; max-height:420px; border:1px solid var(--borde); border-radius:6px; display:block;">
+      </div>
+      <div class="table-wrap" style="max-height:360px; margin-top:14px;">
+        <table class="factura-table">
+          <thead>
+            <tr>
+              <th>Cód. Proveedor</th><th>Descripción (referencia)</th><th>Precio</th><th>Cantidad</th><th>Desc. %</th><th>Costo final</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="facturaLineasBody"></tbody>
+        </table>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <div><button id="facturaAgregarLineaBtn" type="button" class="secondary">+ Agregar línea</button></div>
+        <div><button id="facturaPreviewBtn" type="button">Previsualizar cambios</button></div>
+      </div>
+      <div id="facturaSummary" style="margin-top:10px; font-size:13px;"></div>
+      <div class="table-wrap hidden" id="facturaPreviewWrap" style="max-height:360px; margin-top:10px;">
+        <table>
+          <thead>
+            <tr><th></th><th>SKU</th><th>Cód. Proveedor</th><th>Nombre</th><th>Costo actual</th><th>Costo nuevo</th><th>Variación</th></tr>
+          </thead>
+          <tbody id="facturaPreviewBody"></tbody>
+        </table>
+      </div>
+      <div class="row" id="facturaConfirmRow" style="margin-top:10px; display:none;">
+        <button id="facturaConfirmBtn" class="save-btn">Confirmar actualización</button>
+        <button id="facturaCancelBtn" class="secondary">Cancelar</button>
       </div>
     </div>
 
@@ -730,6 +791,7 @@ function populateFilterOptions() {
   fillSelect($('filterBloque'), bloques);
   fillSelect($('bulkVentaProveedor'), proveedores);
   fillSelect($('etiquetasProveedor'), proveedores, 'Todos');
+  fillSelect($('facturaProveedor'), proveedores.filter(p => p !== 'Borla Hnos' && p !== 'VCC 365'));
 }
 
 // ---------- Rendering ----------
@@ -1565,6 +1627,176 @@ function cancelCostFileUpdate(prefix) {
   $(prefix + 'FileSummary').innerHTML = '';
 }
 
+// ---------- Actualizar costo desde factura (foto de referencia + carga manual) ----------
+// El IVA y "precio por unidad" son condiciones de toda la factura (se cargan una sola vez,
+// arriba). El descuento en cambio es por línea, porque en una misma factura puede haber
+// ítems con distinto descuento (o sin descuento). El costo final que se guarda en la hoja
+// siempre queda con IVA incluido, para que sea comparable con el resto del catálogo.
+let facturaPendingChanges = []; // [{product, newCost, changed}]
+
+function calcularCostoFinalFactura(precio, cantidad, descuentoPct) {
+  if (isNaN(precio) || precio <= 0) return null;
+  const incluyeIva = $('facturaIncluyeIva').checked;
+  const ivaPct = parseFloat($('facturaIvaPct').value) || 0;
+  const esUnitario = $('facturaEsUnitario').checked;
+
+  let base = precio;
+  if (!esUnitario) {
+    const cant = parseFloat(cantidad) || 1;
+    if (cant > 0) base = base / cant;
+  }
+  if (!incluyeIva) base = base * (1 + ivaPct / 100);
+  const desc = parseFloat(descuentoPct) || 0;
+  base = base * (1 - desc / 100);
+  return base > 0 ? base : null;
+}
+
+function recalcFacturaLinea(tr) {
+  const precio = parseFloat(tr.querySelector('[data-field="precio"]').value);
+  const cantidad = tr.querySelector('[data-field="cantidad"]').value;
+  const descuento = tr.querySelector('[data-field="descuento"]').value;
+  const costo = calcularCostoFinalFactura(precio, cantidad, descuento);
+  tr.querySelector('.factura-costo-final').textContent = costo !== null ? ('$ ' + formatPrecio(costo)) : '—';
+}
+
+function recalcAllFacturaLineas() {
+  document.querySelectorAll('#facturaLineasBody tr').forEach(recalcFacturaLinea);
+}
+
+function addFacturaLinea() {
+  const tbody = $('facturaLineasBody');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="text" data-field="codigo"></td>
+    <td><input type="text" data-field="descripcion"></td>
+    <td><input type="number" step="0.01" data-field="precio"></td>
+    <td><input type="number" step="1" min="1" value="1" data-field="cantidad"></td>
+    <td><input type="number" step="0.1" value="0" data-field="descuento"></td>
+    <td class="factura-costo-final">—</td>
+    <td><button type="button" class="factura-del-row" title="Eliminar línea">🗑</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+
+async function previewFacturaUpdate() {
+  const proveedor = $('facturaProveedor').value;
+  if (!proveedor) { setMsg('Elegí el proveedor de la factura.', 'error'); return; }
+  if (!products.length) { setMsg('Conectá y cargá el catálogo antes.', 'error'); return; }
+
+  $('facturaPreviewWrap').classList.add('hidden');
+  $('facturaConfirmRow').style.display = 'none';
+  facturaPendingChanges = [];
+
+  const bySku = {};
+  let filasConCodigo = 0;
+  let filasIgnoradas = 0;
+
+  document.querySelectorAll('#facturaLineasBody tr').forEach(tr => {
+    const codigo = tr.querySelector('[data-field="codigo"]').value.trim();
+    if (!codigo) return;
+    filasConCodigo++;
+    const precio = parseFloat(tr.querySelector('[data-field="precio"]').value);
+    const cantidad = tr.querySelector('[data-field="cantidad"]').value;
+    const descuento = tr.querySelector('[data-field="descuento"]').value;
+    const costo = calcularCostoFinalFactura(precio, cantidad, descuento);
+    if (costo === null) { filasIgnoradas++; return; }
+    bySku[codigo] = costo; // si hay código repetido, gana el último
+  });
+
+  const productosProveedor = products.filter(p => p.proveedor === proveedor);
+  const matched = [];
+  let noEncontrados = 0;
+  Object.keys(bySku).forEach(codigo => {
+    const product = productosProveedor.find(p => p.codigoProveedor === codigo);
+    if (!product) { noEncontrados++; return; }
+    const newCost = Math.round(bySku[codigo] * 100) / 100;
+    matched.push({ product, newCost, changed: newCost !== product.costo });
+  });
+  const sinCodigoProveedor = productosProveedor.filter(p => !p.codigoProveedor).length;
+
+  facturaPendingChanges = matched.filter(m => m.changed);
+
+  const tbody = $('facturaPreviewBody');
+  tbody.innerHTML = '';
+  matched.forEach(m => {
+    const tr = document.createElement('tr');
+    const variacion = m.product.costo > 0 ? (((m.newCost - m.product.costo) / m.product.costo) * 100).toFixed(1) + '%' : '—';
+    tr.innerHTML = `
+      <td><input type="checkbox" class="factura-row-check" data-sku="${escapeHtml(m.product.sku)}" ${m.changed ? 'checked' : ''}></td>
+      <td>${escapeHtml(m.product.sku)}</td>
+      <td>${escapeHtml(m.product.codigoProveedor)}</td>
+      <td>${escapeHtml(m.product.nombre)}</td>
+      <td>${formatPrecio(m.product.costo)}</td>
+      <td>${formatPrecio(m.newCost)}</td>
+      <td>${m.changed ? variacion : 'sin cambio'}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  $('facturaSummary').innerHTML =
+    `Productos de "${escapeHtml(proveedor)}" en tu catálogo: <b>${productosProveedor.length}</b> ` +
+    `(de los cuales <b>${sinCodigoProveedor}</b> no tienen Código Proveedor cargado) — ` +
+    `Líneas con código cargadas: <b>${filasConCodigo}</b> — ` +
+    `Coinciden: <b>${matched.length}</b> — ` +
+    `Con cambio real de costo: <b>${facturaPendingChanges.length}</b> — ` +
+    `No encontrados: <b>${noEncontrados}</b>` +
+    (filasIgnoradas ? ` — Líneas ignoradas (precio inválido): <b>${filasIgnoradas}</b>` : '');
+
+  if (matched.length > 0) {
+    $('facturaPreviewWrap').classList.remove('hidden');
+    $('facturaConfirmRow').style.display = 'flex';
+  }
+  setMsg('Previsualización lista. Revisá los cambios antes de confirmar.', 'ok');
+}
+
+async function confirmFacturaUpdate() {
+  const proveedor = $('facturaProveedor').value;
+  const checks = [...document.querySelectorAll('.factura-row-check:checked')].map(c => c.dataset.sku);
+  const toApply = facturaPendingChanges.filter(m => checks.includes(m.product.sku));
+
+  if (toApply.length === 0) {
+    setMsg('No hay filas marcadas para actualizar.', 'error');
+    return;
+  }
+  if (!confirm(`Se va a actualizar el precio de costo de ${toApply.length} producto(s) de "${proveedor}". ¿Confirmar?`)) return;
+
+  const motivo = 'Actualización de costo desde factura (' + proveedor + ')';
+  const today = new Date().toISOString().slice(0, 10);
+  const updateData = [];
+  const historialRows = [];
+
+  toApply.forEach(({ product, newCost }) => {
+    updateData.push({ range: `Productos!F${product.row}`, values: [[newCost]] });
+    updateData.push({ range: `Productos!L${product.row}`, values: [[today]] });
+    const variacion = product.costo > 0 ? ((newCost - product.costo) / product.costo) : 0;
+    historialRows.push([today, product.sku, product.nombre, product.costo, newCost, product.venta, product.venta, variacion, motivo]);
+    product._pendingCosto = newCost;
+  });
+
+  setMsg(`Actualizando ${toApply.length} producto(s)...`, '');
+  try {
+    await sheetsBatchUpdate(updateData);
+    await sheetsAppend('Historial_Precios!A:I', historialRows);
+    toApply.forEach(({ product }) => {
+      product.costo = product._pendingCosto;
+      product.actualizado = today;
+      delete product._pendingCosto;
+    });
+    renderTable();
+    setMsg(`Se actualizó el costo de ${toApply.length} producto(s) de "${proveedor}".`, 'ok');
+    cancelFacturaUpdate();
+  } catch (e) {
+    setMsg('Error al actualizar costos desde factura: ' + e.message, 'error');
+  }
+}
+
+function cancelFacturaUpdate() {
+  facturaPendingChanges = [];
+  $('facturaPreviewWrap').classList.add('hidden');
+  $('facturaConfirmRow').style.display = 'none';
+  $('facturaSummary').innerHTML = '';
+}
+
 // ---------- Events ----------
 $('connectBtn').addEventListener('click', connect);
 $('disconnectBtn').addEventListener('click', disconnect);
@@ -1662,6 +1894,33 @@ $('borlaFileCancelBtn').addEventListener('click', () => cancelCostFileUpdate('bo
 $('vccFilePreviewBtn').addEventListener('click', () => previewCostFileUpdate('vcc'));
 $('vccFileConfirmBtn').addEventListener('click', () => confirmCostFileUpdate('vcc'));
 $('vccFileCancelBtn').addEventListener('click', () => cancelCostFileUpdate('vcc'));
+
+// Factura (foto + carga manual)
+$('facturaFotoInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) { $('facturaFotoPreviewWrap').classList.add('hidden'); return; }
+  $('facturaFotoPreview').src = URL.createObjectURL(file);
+  $('facturaFotoPreviewWrap').classList.remove('hidden');
+});
+$('facturaIncluyeIva').addEventListener('change', recalcAllFacturaLineas);
+$('facturaIvaPct').addEventListener('input', recalcAllFacturaLineas);
+$('facturaEsUnitario').addEventListener('change', recalcAllFacturaLineas);
+$('facturaLineasBody').addEventListener('input', (e) => {
+  const field = e.target.dataset.field;
+  if (field === 'precio' || field === 'cantidad' || field === 'descuento') {
+    recalcFacturaLinea(e.target.closest('tr'));
+  }
+});
+$('facturaLineasBody').addEventListener('click', (e) => {
+  if (e.target.classList.contains('factura-del-row')) {
+    e.target.closest('tr').remove();
+  }
+});
+$('facturaAgregarLineaBtn').addEventListener('click', addFacturaLinea);
+$('facturaPreviewBtn').addEventListener('click', previewFacturaUpdate);
+$('facturaConfirmBtn').addEventListener('click', confirmFacturaUpdate);
+$('facturaCancelBtn').addEventListener('click', cancelFacturaUpdate);
+for (let i = 0; i < 8; i++) addFacturaLinea();
 
 loadSavedConfig();
 </script>
