@@ -280,8 +280,19 @@
           <select id="bulkVentaProveedor"><option value="">Seleccionar...</option></select>
         </div>
         <div>
+          <label>Método</label>
+          <select id="bulkVentaMetodo">
+            <option value="markup">Por markup deseado</option>
+            <option value="aumento">Por % de aumento sobre el precio actual</option>
+          </select>
+        </div>
+        <div id="bulkVentaMarkupGroup">
           <label>Markup deseado (%)</label>
           <input id="bulkVentaMarkup" type="number" step="0.1" placeholder="Ej: 35" style="width:100px">
+        </div>
+        <div id="bulkVentaAumentoGroup" class="hidden">
+          <label>Aumento sobre precio actual (%)</label>
+          <input id="bulkVentaAumento" type="number" step="0.1" placeholder="Ej: 10" style="width:100px">
         </div>
         <div>
           <button id="bulkVentaPreviewBtn">Previsualizar cambios</button>
@@ -1248,10 +1259,13 @@ let bulkVentaPendingChanges = []; // [{product, newVenta}]
 
 async function previewBulkVenta() {
   const proveedor = $('bulkVentaProveedor').value;
+  const metodo = $('bulkVentaMetodo').value;
   const markup = parseFloat($('bulkVentaMarkup').value);
+  const aumento = parseFloat($('bulkVentaAumento').value);
 
   if (!proveedor) { setMsg('Elegí un proveedor.', 'error'); return; }
-  if (isNaN(markup)) { setMsg('Ingresá un markup válido.', 'error'); return; }
+  if (metodo === 'markup' && isNaN(markup)) { setMsg('Ingresá un markup válido.', 'error'); return; }
+  if (metodo === 'aumento' && isNaN(aumento)) { setMsg('Ingresá un porcentaje de aumento válido.', 'error'); return; }
   if (!products.length) { setMsg('Conectá y cargá el catálogo antes.', 'error'); return; }
 
   $('bulkVentaPreviewWrap').classList.add('hidden');
@@ -1259,11 +1273,20 @@ async function previewBulkVenta() {
   bulkVentaPendingChanges = [];
 
   const productosProveedor = products.filter(p => p.proveedor === proveedor);
-  const sinCosto = productosProveedor.filter(p => !(p.costo > 0));
-  const conCosto = productosProveedor.filter(p => p.costo > 0);
+  // Por markup se necesita el costo cargado; por % de aumento se necesita el precio de
+  // venta actual (el costo no hace falta, aunque se sigue mostrando el markup actual si lo hay).
+  const elegibles = metodo === 'markup'
+    ? productosProveedor.filter(p => p.costo > 0)
+    : productosProveedor.filter(p => p.venta > 0);
+  const excluidosLabel = metodo === 'markup'
+    ? 'Sin costo cargado (no se pueden actualizar)'
+    : 'Sin precio de venta actual (no se pueden actualizar)';
+  const excluidos = productosProveedor.length - elegibles.length;
 
-  const matched = conCosto.map(p => {
-    const newVenta = roundUpToTen(p.costo * (1 + markup / 100));
+  const matched = elegibles.map(p => {
+    const newVenta = metodo === 'markup'
+      ? roundUpToTen(p.costo * (1 + markup / 100))
+      : roundUpToTen(p.venta * (1 + aumento / 100));
     const markupActual = p.costo > 0 ? ((p.venta - p.costo) / p.costo * 100) : 0;
     return { product: p, newVenta, markupActual, changed: newVenta !== p.venta };
   });
@@ -1288,7 +1311,7 @@ async function previewBulkVenta() {
 
   $('bulkVentaSummary').innerHTML =
     `Productos de "${escapeHtml(proveedor)}": <b>${productosProveedor.length}</b> — ` +
-    `Sin costo cargado (no se pueden actualizar): <b>${sinCosto.length}</b> — ` +
+    `${excluidosLabel}: <b>${excluidos}</b> — ` +
     `Con cambio real de precio: <b>${bulkVentaPendingChanges.length}</b>`;
 
   if (matched.length > 0) {
@@ -1307,10 +1330,17 @@ async function confirmBulkVenta() {
     return;
   }
   const proveedor = $('bulkVentaProveedor').value;
+  const metodo = $('bulkVentaMetodo').value;
   const markup = parseFloat($('bulkVentaMarkup').value);
-  if (!confirm(`Se va a actualizar el precio de venta de ${toApply.length} producto(s) de "${proveedor}" aplicando ${markup}% de markup sobre el costo. ¿Confirmar?`)) return;
+  const aumento = parseFloat($('bulkVentaAumento').value);
+  const descripcionMetodo = metodo === 'markup'
+    ? `aplicando ${markup}% de markup sobre el costo`
+    : `aplicando un aumento del ${aumento}% sobre el precio de venta actual`;
+  if (!confirm(`Se va a actualizar el precio de venta de ${toApply.length} producto(s) de "${proveedor}" ${descripcionMetodo}. ¿Confirmar?`)) return;
 
-  const motivo = `Actualización masiva de venta — ${proveedor} (markup ${markup}%)`;
+  const motivo = metodo === 'markup'
+    ? `Actualización masiva de venta — ${proveedor} (markup ${markup}%)`
+    : `Actualización masiva de venta — ${proveedor} (aumento ${aumento}% sobre precio actual)`;
   const today = new Date().toISOString().slice(0, 10);
   const updateData = [];
   const historialRows = [];
@@ -1343,6 +1373,7 @@ async function confirmBulkVenta() {
 function cancelBulkVenta() {
   bulkVentaPendingChanges = [];
   $('bulkVentaMarkup').value = '';
+  $('bulkVentaAumento').value = '';
   $('bulkVentaPreviewWrap').classList.add('hidden');
   $('bulkVentaConfirmRow').style.display = 'none';
   $('bulkVentaSummary').innerHTML = '';
@@ -1934,6 +1965,11 @@ $('filterCategoria').addEventListener('change', renderTable);
 $('filterProveedor').addEventListener('change', renderTable);
 $('filterBloque').addEventListener('change', renderTable);
 $('filterBajo').addEventListener('change', renderTable);
+$('bulkVentaMetodo').addEventListener('change', () => {
+  const metodo = $('bulkVentaMetodo').value;
+  $('bulkVentaMarkupGroup').classList.toggle('hidden', metodo !== 'markup');
+  $('bulkVentaAumentoGroup').classList.toggle('hidden', metodo !== 'aumento');
+});
 $('bulkVentaPreviewBtn').addEventListener('click', previewBulkVenta);
 $('bulkVentaConfirmBtn').addEventListener('click', confirmBulkVenta);
 $('bulkVentaCancelBtn').addEventListener('click', cancelBulkVenta);
