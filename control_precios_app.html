@@ -400,6 +400,10 @@
           <label>Foto de la factura</label>
           <input id="facturaFotoInput" type="file" accept="image/*" capture="environment">
         </div>
+        <div>
+          <label>&nbsp;</label>
+          <button id="facturaCameraBtn" type="button" class="secondary">📷 Usar cámara</button>
+        </div>
       </div>
       <div class="row" style="margin-top:10px;">
         <div>
@@ -493,6 +497,18 @@
       <div id="cameraScanMsg"></div>
       <div class="row" style="margin-top:12px;">
         <button id="cameraCloseBtn" class="secondary" type="button">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="facturaCameraModal" class="modal-overlay hidden">
+    <div class="modal-box" style="max-width:480px;">
+      <h3>Foto de la factura</h3>
+      <video id="facturaCameraVideo" autoplay playsinline style="width:100%; border-radius:6px; background:#000;"></video>
+      <div id="facturaCameraMsg" style="font-size:13px; color:var(--rojo-error); margin-top:8px; min-height:16px;"></div>
+      <div class="row" style="margin-top:12px;">
+        <button id="facturaCameraCaptureBtn" class="save-btn" type="button">Capturar foto</button>
+        <button id="facturaCameraCloseBtn" class="secondary" type="button">Cerrar</button>
       </div>
     </div>
   </div>
@@ -1797,6 +1813,42 @@ function cancelFacturaUpdate() {
   $('facturaSummary').innerHTML = '';
 }
 
+// ---------- Foto de factura con cámara en vivo ----------
+let facturaCameraStream = null;
+
+async function openFacturaCamera() {
+  $('facturaCameraMsg').textContent = '';
+  $('facturaCameraModal').classList.remove('hidden');
+  try {
+    facturaCameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    $('facturaCameraVideo').srcObject = facturaCameraStream;
+  } catch (err) {
+    const detail = (err && err.message) ? err.message : String(err);
+    $('facturaCameraMsg').textContent = 'No se pudo acceder a la cámara: ' + detail + '. Revisá que le hayas dado permiso de cámara al navegador, y que estés accediendo por https:// (o localhost).';
+  }
+}
+
+function closeFacturaCamera() {
+  $('facturaCameraModal').classList.add('hidden');
+  if (facturaCameraStream) {
+    facturaCameraStream.getTracks().forEach(t => t.stop());
+    facturaCameraStream = null;
+  }
+}
+
+function captureFacturaPhoto() {
+  const video = $('facturaCameraVideo');
+  if (!video.videoWidth) { $('facturaCameraMsg').textContent = 'La cámara todavía no está lista, esperá un instante.'; return; }
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+  $('facturaFotoPreview').src = canvas.toDataURL('image/jpeg', 0.9);
+  $('facturaFotoPreviewWrap').classList.remove('hidden');
+  $('facturaFotoInput').value = ''; // la foto tomada por cámara reemplaza cualquier archivo elegido antes
+  closeFacturaCamera();
+}
+
 // ---------- Events ----------
 $('connectBtn').addEventListener('click', connect);
 $('disconnectBtn').addEventListener('click', disconnect);
@@ -1902,6 +1954,9 @@ $('facturaFotoInput').addEventListener('change', (e) => {
   $('facturaFotoPreview').src = URL.createObjectURL(file);
   $('facturaFotoPreviewWrap').classList.remove('hidden');
 });
+$('facturaCameraBtn').addEventListener('click', openFacturaCamera);
+$('facturaCameraCaptureBtn').addEventListener('click', captureFacturaPhoto);
+$('facturaCameraCloseBtn').addEventListener('click', closeFacturaCamera);
 $('facturaIncluyeIva').addEventListener('change', recalcAllFacturaLineas);
 $('facturaIvaPct').addEventListener('input', recalcAllFacturaLineas);
 $('facturaEsUnitario').addEventListener('change', recalcAllFacturaLineas);
