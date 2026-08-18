@@ -244,6 +244,9 @@
         <div>
           <button id="addProductBtn" type="button">+ Agregar producto</button>
         </div>
+        <div>
+          <button id="saveAllBtn" type="button" class="save-btn">💾 Guardar todo</button>
+        </div>
       </div>
     </div>
 
@@ -1176,6 +1179,94 @@ async function saveRow(rowNum) {
   }
 }
 
+// Guarda de una sola vez los cambios de todas las filas visibles en el catálogo (según
+// los filtros activos), en vez de tener que tocar el ✓ fila por fila. Usa los mismos
+// campos y la misma detección de cambios que saveRow(), pero junta todo en un solo
+// sheetsBatchUpdate + un solo append al historial, para no hacer una llamada por fila.
+async function saveAllRows() {
+  const rows = [...document.querySelectorAll('#productsBody tr')];
+  if (!rows.length) { setMsg('No hay productos para guardar.', ''); return; }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const updateData = [];
+  const historialRows = [];
+  const changes = [];
+
+  rows.forEach(tr => {
+    const anyField = tr.querySelector('[data-row]');
+    if (!anyField) return;
+    const rowNum = parseInt(anyField.dataset.row, 10);
+    const product = products.find(p => p.row === rowNum);
+    if (!product) return;
+
+    const costoInput = tr.querySelector('[data-field="costo"]');
+    const ventaInput = tr.querySelector('[data-field="venta"]');
+    const eanInput = tr.querySelector('[data-field="ean"]');
+    const codProvInput = tr.querySelector('[data-field="codigoProveedor"]');
+    const bloqueInput = tr.querySelector('[data-field="bloque"]');
+    const categoriaSelect = tr.querySelector('[data-field="categoria"]');
+    const proveedorSelect = tr.querySelector('[data-field="proveedor"]');
+
+    const newCosto = parseFloat(costoInput.value) || 0;
+    const newVenta = parseFloat(ventaInput.value) || 0;
+    const newEan = eanInput.value.trim();
+    const newCodProv = codProvInput.value.trim();
+    const newBloque = bloqueInput.value.trim();
+    const newCategoria = categoriaSelect.value;
+    const newProveedor = proveedorSelect.value;
+
+    const priceChanged = newCosto !== product.costo || newVenta !== product.venta;
+    const eanChanged = newEan !== product.ean;
+    const codProvChanged = newCodProv !== product.codigoProveedor;
+    const bloqueChanged = newBloque !== product.bloque;
+    const categoriaChanged = newCategoria !== product.categoria;
+    const proveedorChanged = newProveedor !== product.proveedor;
+
+    if (!priceChanged && !eanChanged && !codProvChanged && !bloqueChanged && !categoriaChanged && !proveedorChanged) return;
+
+    if (priceChanged) {
+      updateData.push({ range: `Productos!F${rowNum}:G${rowNum}`, values: [[newCosto, newVenta]] });
+      updateData.push({ range: `Productos!L${rowNum}`, values: [[today]] });
+      const variacion = product.venta > 0 ? ((newVenta - product.venta) / product.venta) : 0;
+      historialRows.push([today, product.sku, product.nombre, product.costo, newCosto, product.venta, newVenta, variacion, 'Actualización manual (guardado masivo)']);
+    }
+    if (eanChanged) updateData.push({ range: `Productos!M${rowNum}`, values: [[newEan]] });
+    if (codProvChanged) updateData.push({ range: `Productos!N${rowNum}`, values: [[newCodProv]] });
+    if (bloqueChanged) updateData.push({ range: `Productos!P${rowNum}`, values: [[newBloque]] });
+    if (categoriaChanged) updateData.push({ range: `Productos!C${rowNum}`, values: [[newCategoria]] });
+    if (proveedorChanged) updateData.push({ range: `Productos!D${rowNum}`, values: [[newProveedor]] });
+
+    changes.push({ product, newCosto, newVenta, newEan, newCodProv, newBloque, newCategoria, newProveedor, priceChanged });
+  });
+
+  if (!changes.length) {
+    setMsg('No hay cambios para guardar.', '');
+    return;
+  }
+
+  if (!confirm(`Se van a guardar los cambios de ${changes.length} producto(s) del catálogo. ¿Confirmar?`)) return;
+
+  setMsg(`Guardando ${changes.length} producto(s)...`, '');
+  try {
+    await sheetsBatchUpdate(updateData);
+    if (historialRows.length) await sheetsAppend('Historial_Precios!A:I', historialRows);
+    changes.forEach(c => {
+      c.product.costo = c.newCosto;
+      c.product.venta = c.newVenta;
+      c.product.ean = c.newEan;
+      c.product.codigoProveedor = c.newCodProv;
+      c.product.bloque = c.newBloque;
+      c.product.categoria = c.newCategoria;
+      c.product.proveedor = c.newProveedor;
+      if (c.priceChanged) c.product.actualizado = today;
+    });
+    renderTable();
+    setMsg(`Se guardaron los cambios de ${changes.length} producto(s).`, 'ok');
+  } catch (e) {
+    setMsg('Error al guardar los cambios: ' + e.message, 'error');
+  }
+}
+
 async function appendHistorial(product, newCosto, newVenta, motivo) {
   const today = new Date().toISOString().slice(0, 10);
   const variacion = product.venta > 0 ? ((newVenta - product.venta) / product.venta) : 0;
@@ -1909,6 +2000,7 @@ $('searchInput').addEventListener('keydown', (e) => {
 $('scanCameraBtn').addEventListener('click', openCameraScanner);
 $('cameraCloseBtn').addEventListener('click', closeCameraScanner);
 $('addProductBtn').addEventListener('click', openAddProductModal);
+$('saveAllBtn').addEventListener('click', saveAllRows);
 $('addProductCancelBtn').addEventListener('click', closeAddProductModal);
 $('addProductConfirmBtn').addEventListener('click', confirmAddProduct);
 
