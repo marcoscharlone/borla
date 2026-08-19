@@ -8,6 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.2.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/7.0.0/tesseract.min.js"></script>
 <style>
   :root {
     --rojo-marca: #E3010F;
@@ -433,6 +434,10 @@
       </div>
       <div id="facturaFotoPreviewWrap" class="hidden" style="margin-top:10px;">
         <img id="facturaFotoPreview" alt="Foto de la factura" style="max-width:100%; max-height:420px; border:1px solid var(--borde); border-radius:6px; display:block;">
+        <div class="row" style="margin-top:10px;">
+          <div><button id="facturaOcrBtn" type="button" class="secondary">🔎 Leer factura automáticamente</button></div>
+        </div>
+        <div id="facturaOcrMsg" style="font-size:13px; margin-top:6px; min-height:16px;"></div>
       </div>
       <div class="table-wrap" style="max-height:360px; margin-top:14px;">
         <table class="factura-table">
@@ -1828,6 +1833,90 @@ function addFacturaLinea() {
   tbody.appendChild(tr);
 }
 
+// Interpreta un número tal como suele aparecer en una factura argentina (punto de miles,
+// coma decimal — o al revés si así lo escaneó el OCR) y lo deja en formato JS estándar.
+function parseNumberAR(str) {
+  let s = String(str).trim();
+  const lastComma = s.lastIndexOf(',');
+  const lastDot = s.lastIndexOf('.');
+  if (lastComma > -1 && lastDot > -1) {
+    if (lastComma > lastDot) s = s.replace(/\./g, '').replace(',', '.');
+    else s = s.replace(/,/g, '');
+  } else if (lastComma > -1) {
+    const decimales = s.length - lastComma - 1;
+    s = decimales === 2 ? s.replace(',', '.') : s.replace(/,/g, '');
+  } else {
+    // Sin coma: si hay más de un punto, todos son separadores de miles (no puede haber
+    // dos puntos decimales), así que se sacan todos y queda un entero.
+    const puntos = (s.match(/\./g) || []).length;
+    if (puntos > 1) s = s.replace(/\./g, '');
+  }
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
+// Lectura automática (OCR) de la foto de la factura, con Tesseract.js corriendo en el
+// navegador (sin backend ni API paga). Es una PRIMERA APROXIMACIÓN: precarga la tabla de
+// líneas con lo que pudo detectar (heurística simple: el primer número de cada renglón se
+// toma como código, el último como precio), pero la tabla sigue siendo 100% editable —
+// hay que revisar y corregir antes de previsualizar los cambios, porque el reconocimiento
+// de texto en fotos de facturas reales (letra chica, torcidas, formatos distintos) falla seguido.
+async function leerFacturaAutomatica() {
+  const img = $('facturaFotoPreview');
+  if (!img.src) { $('facturaOcrMsg').textContent = 'Primero sacá o subí una foto de la factura.'; return; }
+  if (typeof Tesseract === 'undefined') {
+    $('facturaOcrMsg').textContent = 'No se pudo cargar la librería de lectura automática. Revisá tu conexión a internet.';
+    return;
+  }
+
+  const btn = $('facturaOcrBtn');
+  btn.disabled = true;
+  $('facturaOcrMsg').style.color = '#444';
+  $('facturaOcrMsg').textContent = 'Leyendo la factura automáticamente... esto puede tardar unos segundos.';
+
+  try {
+    const { data } = await Tesseract.recognize(img.src, 'spa');
+    const lineas = data.text.split('\n').map(l => l.trim()).filter(l => l);
+
+    const filas = [];
+    lineas.forEach(linea => {
+      const numeros = linea.match(/\d[\d.,]*\d|\d+/g);
+      if (!numeros || numeros.length < 2) return;
+      const codigo = numeros[0].replace(/[^\d]/g, '');
+      const precio = parseNumberAR(numeros[numeros.length - 1]);
+      if (!codigo || precio === null || precio <= 0) return;
+      filas.push({ codigo, descripcion: linea, precio });
+    });
+
+    if (!filas.length) {
+      $('facturaOcrMsg').style.color = 'var(--rojo-error)';
+      $('facturaOcrMsg').textContent = 'No se detectó ninguna línea con código y precio. Probá con una foto más clara (bien enfocada y derecha), o cargá los datos a mano.';
+      return;
+    }
+
+    $('facturaLineasBody').innerHTML = '';
+    filas.forEach(f => {
+      addFacturaLinea();
+      const tr = $('facturaLineasBody').lastElementChild;
+      tr.querySelector('[data-field="codigo"]').value = f.codigo;
+      tr.querySelector('[data-field="descripcion"]').value = f.descripcion;
+      tr.querySelector('[data-field="precio"]').value = f.precio;
+      recalcFacturaLinea(tr);
+    });
+    addFacturaLinea(); // una fila extra en blanco por si falta cargar algo a mano
+
+    $('facturaOcrMsg').style.color = 'var(--rojo-error)';
+    $('facturaOcrMsg').textContent =
+      `Se detectaron ${filas.length} línea(s) — REVISÁ Y CORREGÍ cada código y precio contra la foto antes de continuar, ` +
+      `la lectura automática puede equivocarse (sobre todo si confunde código, cantidad y precio en la misma línea).`;
+  } catch (e) {
+    $('facturaOcrMsg').style.color = 'var(--rojo-error)';
+    $('facturaOcrMsg').textContent = 'Error al leer la factura: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function previewFacturaUpdate() {
   const proveedor = $('facturaProveedor').value;
   if (!proveedor) { setMsg('Elegí el proveedor de la factura.', 'error'); return; }
@@ -1980,6 +2069,7 @@ function captureFacturaPhoto() {
   $('facturaFotoPreview').src = canvas.toDataURL('image/jpeg', 0.9);
   $('facturaFotoPreviewWrap').classList.remove('hidden');
   $('facturaFotoInput').value = ''; // la foto tomada por cámara reemplaza cualquier archivo elegido antes
+  $('facturaOcrMsg').textContent = '';
   closeFacturaCamera();
 }
 
@@ -2093,6 +2183,7 @@ $('facturaFotoInput').addEventListener('change', (e) => {
   if (!file) { $('facturaFotoPreviewWrap').classList.add('hidden'); return; }
   $('facturaFotoPreview').src = URL.createObjectURL(file);
   $('facturaFotoPreviewWrap').classList.remove('hidden');
+  $('facturaOcrMsg').textContent = '';
 });
 $('facturaCameraBtn').addEventListener('click', openFacturaCamera);
 $('facturaCameraCaptureBtn').addEventListener('click', captureFacturaPhoto);
@@ -2111,6 +2202,7 @@ $('facturaLineasBody').addEventListener('click', (e) => {
     e.target.closest('tr').remove();
   }
 });
+$('facturaOcrBtn').addEventListener('click', leerFacturaAutomatica);
 $('facturaAgregarLineaBtn').addEventListener('click', addFacturaLinea);
 $('facturaPreviewBtn').addEventListener('click', previewFacturaUpdate);
 $('facturaConfirmBtn').addEventListener('click', confirmFacturaUpdate);
