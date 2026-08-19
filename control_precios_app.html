@@ -81,7 +81,7 @@
   th, td { border: 1px solid var(--borde); padding: 6px 8px; text-align: left; }
   th { background: var(--rojo-marca); color: #fff; position: sticky; top: 0; }
   tbody tr:nth-child(even) { background: #FAFBFC; }
-  tr.low-stock { background: #FDEDEC !important; }
+  tr.markup-bajo-row { background: #FDEDEC !important; }
   tr.scan-match { outline: 3px solid var(--amarillo-marca); outline-offset: -3px; }
   td input { width: 90px; }
   /* Tabla del catálogo: ancho fijo por columna + fuente más chica, para que los textos
@@ -233,7 +233,7 @@
           <select id="filterBloque"><option value="">Todos</option></select>
         </div>
         <div>
-          <label><input type="checkbox" id="filterBajo"> Solo stock bajo</label>
+          <label><input type="checkbox" id="filterMarkupBajo"> Solo markup bajo</label>
         </div>
         <div>
           <button id="reloadBtn" class="secondary">Recargar datos</button>
@@ -825,19 +825,38 @@ function populateFilterOptions() {
 }
 
 // ---------- Rendering ----------
+// Markup de un producto contra el umbral (Markup promedio) de su proveedor. Se comparte
+// entre el filtro "Solo markup bajo" y el resaltado/coloreado de la tabla, para que ambos
+// usen exactamente el mismo criterio de "bajo" (en rojo).
+function getMarkupInfo(p) {
+  const margenPct = p.costo > 0 ? ((p.venta - p.costo) / p.costo * 100) : 0;
+  const umbral = proveedorMarkup[p.proveedor];
+  let markupClass = '';
+  let bajo = false;
+  if (umbral !== undefined && !isNaN(umbral)) {
+    if (margenPct >= umbral) {
+      markupClass = 'markup-ok';
+    } else {
+      markupClass = 'markup-low';
+      bajo = true;
+    }
+  }
+  return { margenPct, markupClass, bajo };
+}
+
 function getFilteredProducts() {
   const search = $('searchInput').value.trim().toLowerCase();
   const fCat = $('filterCategoria').value;
   const fProv = $('filterProveedor').value;
   const fBloque = $('filterBloque').value;
-  const fBajo = $('filterBajo').checked;
+  const fMarkupBajo = $('filterMarkupBajo').checked;
 
   return products.filter(p => {
     if (search && !(p.nombre.toLowerCase().includes(search) || p.sku.toLowerCase().includes(search) || (p.ean || '').toLowerCase().includes(search) || (p.codigoProveedor || '').toLowerCase().includes(search))) return false;
     if (fCat && p.categoria !== fCat) return false;
     if (fProv && p.proveedor !== fProv) return false;
     if (fBloque && p.bloque !== fBloque) return false;
-    if (fBajo && p.estado !== 'Bajo') return false;
+    if (fMarkupBajo && !getMarkupInfo(p).bajo) return false;
     return true;
   });
 }
@@ -854,17 +873,10 @@ function renderTable() {
 
   filtered.forEach(p => {
     const tr = document.createElement('tr');
-    if (p.estado === 'Bajo') tr.classList.add('low-stock');
 
-    const margenPct = p.costo > 0 ? ((p.venta - p.costo) / p.costo * 100) : 0;
+    const { margenPct, markupClass, bajo } = getMarkupInfo(p);
     sumMargen += margenPct; countMargen++;
-
-    const umbral = proveedorMarkup[p.proveedor];
-    let markupClass = '';
-    if (umbral !== undefined && !isNaN(umbral)) {
-      markupClass = margenPct >= umbral ? 'markup-ok' : 'markup-low';
-      if (markupClass === 'markup-low') markupBajoCount++;
-    }
+    if (bajo) { markupBajoCount++; tr.classList.add('markup-bajo-row'); }
 
     const catSel = `<option value="">(sin categoría)</option>` + categoriaOptions;
     const provSel = `<option value="">(sin proveedor)</option>` + proveedorOptions;
@@ -2056,7 +2068,7 @@ $('etiquetasSelectAll').addEventListener('change', (e) => {
 $('filterCategoria').addEventListener('change', renderTable);
 $('filterProveedor').addEventListener('change', renderTable);
 $('filterBloque').addEventListener('change', renderTable);
-$('filterBajo').addEventListener('change', renderTable);
+$('filterMarkupBajo').addEventListener('change', renderTable);
 $('bulkVentaMetodo').addEventListener('change', () => {
   const metodo = $('bulkVentaMetodo').value;
   $('bulkVentaMarkupGroup').classList.toggle('hidden', metodo !== 'markup');
